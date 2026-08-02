@@ -11,12 +11,11 @@ from sqlalchemy.ext.asyncio import (
 
 from apps.metadata_service.config import get_settings
 
-
 @lru_cache
-def get_engine() -> AsyncEngine:
+def get_database_url() -> URL:
     settings = get_settings()
 
-    database_url = URL.create(
+    return URL.create(
         drivername="postgresql+asyncpg",
         username=settings.postgres_user,
         password=settings.postgres_password,
@@ -25,8 +24,11 @@ def get_engine() -> AsyncEngine:
         database=settings.postgres_db,
     )
 
+@lru_cache
+@lru_cache
+def get_engine() -> AsyncEngine:
     return create_async_engine(
-        database_url,
+        get_database_url(),
         pool_pre_ping=True,
         connect_args={"timeout": 5},
     )
