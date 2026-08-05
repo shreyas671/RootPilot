@@ -25,7 +25,6 @@ def get_database_url() -> URL:
     )
 
 @lru_cache
-@lru_cache
 def get_engine() -> AsyncEngine:
     return create_async_engine(
         get_database_url(),
