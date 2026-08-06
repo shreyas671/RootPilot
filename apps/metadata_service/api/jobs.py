@@ -8,6 +8,8 @@ from apps.metadata_service.database import get_db_session
 from apps.metadata_service.models.job import Job
 from apps.metadata_service.schemas.job import JobCreate, JobResponse
 
+from uuid import UUID
+
 
 router = APIRouter(
     prefix="/jobs",
@@ -43,3 +45,28 @@ async def create_job(
         ) from exc
 
     return response
+
+
+@router.get(
+    "/{job_id}",
+    response_model=JobResponse,
+)
+async def get_job(
+    job_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> JobResponse:
+    try:
+        job = await session.get(Job, job_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to retrieve job",
+        ) from exc
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    return JobResponse.model_validate(job)
