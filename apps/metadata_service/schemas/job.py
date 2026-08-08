@@ -1,8 +1,13 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StringConstraints,
+    model_validator,
+)
 
 from apps.metadata_service.models.job import JobStatus
 
@@ -16,9 +21,40 @@ InputPath = Annotated[
     ),
 ]
 
+ErrorMessage = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=4000,
+    ),
+]
+
 
 class JobCreate(BaseModel):
     input_path: InputPath
+
+
+class JobStatusUpdate(BaseModel):
+    status: JobStatus
+    error_message: ErrorMessage | None = None
+
+    @model_validator(mode="after")
+    def validate_error_message(self) -> Self:
+        if self.status is JobStatus.FAILED and self.error_message is None:
+            raise ValueError(
+                "error_message is required when status is failed"
+            )
+
+        if (
+            self.status is not JobStatus.FAILED
+            and self.error_message is not None
+        ):
+            raise ValueError(
+                "error_message is only allowed when status is failed"
+            )
+
+        return self
 
 
 class JobResponse(BaseModel):
