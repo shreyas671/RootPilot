@@ -1,0 +1,62 @@
+{
+  "incident_id": "INC-DB-001",
+  "title": "Checkout API returning HTTP 503 errors",
+  "service": "checkout-api",
+  "started_at": "2026-07-21T14:32:00Z",
+  "summary": "Checkout requests are failing while the PostgreSQL instance remains reachable.",
+  "symptoms": [
+    "HTTP 503 rate increased from 0.2% to 18.7%",
+    "Checkout latency increased above 8 seconds",
+    "Application instances are waiting for database connections"
+  ],
+  "metrics": [
+    {
+      "name": "http_5xx_rate",
+      "value": 18.7,
+      "unit": "percent"
+    },
+    {
+      "name": "db_pool_active_connections",
+      "value": 20,
+      "unit": "connections"
+    },
+    {
+      "name": "db_pool_max_connections",
+      "value": 20,
+      "unit": "connections"
+    },
+    {
+      "name": "db_pool_waiters",
+      "value": 46,
+      "unit": "requests"
+    },
+    {
+      "name": "postgres_cpu_utilization",
+      "value": 37,
+      "unit": "percent"
+    }
+  ],
+  "logs": [
+    {
+      "timestamp": "2026-07-21T14:32:11Z",
+      "level": "ERROR",
+      "message": "TimeoutError: unable to acquire database connection after 30 seconds"
+    },
+    {
+      "timestamp": "2026-07-21T14:32:16Z",
+      "level": "WARN",
+      "message": "Database pool reached maximum size: active=20 idle=0 waiters=46"
+    },
+    {
+      "timestamp": "2026-07-21T14:33:02Z",
+      "level": "INFO",
+      "message": "PostgreSQL health check completed successfully in 18 ms"
+    }
+  ],
+  "recent_changes": [
+    {
+      "timestamp": "2026-07-21T14:04:00Z",
+      "description": "Deployed checkout-api v1.14.0 with updated order-history transaction handling"
+    }
+  ]
+}

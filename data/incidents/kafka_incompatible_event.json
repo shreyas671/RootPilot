@@ -1,0 +1,62 @@
+{
+  "incident_id": "INC-KAFKA-001",
+  "title": "Order worker consumer lag increasing continuously",
+  "service": "order-worker",
+  "started_at": "2026-07-25T09:15:00Z",
+  "summary": "The order worker repeatedly crashes while processing one Kafka partition.",
+  "symptoms": [
+    "Consumer lag is increasing on orders partition 2",
+    "The order worker is repeatedly restarting",
+    "New orders remain pending"
+  ],
+  "metrics": [
+    {
+      "name": "kafka_consumer_lag",
+      "value": 48210,
+      "unit": "messages"
+    },
+    {
+      "name": "message_ingress_rate",
+      "value": 120,
+      "unit": "messages_per_second"
+    },
+    {
+      "name": "message_processing_rate",
+      "value": 0.8,
+      "unit": "messages_per_second"
+    },
+    {
+      "name": "worker_restart_count",
+      "value": 14,
+      "unit": "restarts"
+    },
+    {
+      "name": "kafka_broker_health",
+      "value": 1,
+      "unit": "healthy"
+    }
+  ],
+  "logs": [
+    {
+      "timestamp": "2026-07-25T09:15:08Z",
+      "level": "ERROR",
+      "message": "EventValidationError: required field order_id is missing"
+    },
+    {
+      "timestamp": "2026-07-25T09:15:08Z",
+      "level": "ERROR",
+      "message": "Consumer failed while processing topic=orders partition=2 offset=881204"
+    },
+    {
+      "timestamp": "2026-07-25T09:15:14Z",
+      "level": "INFO",
+      "message": "Consumer restarted and resumed from offset 881204"
+    }
+  ],
+  "recent_changes": [
+    {
+      "timestamp": "2026-07-25T09:02:00Z",
+      "description": "A partner producer began publishing version 3 order events"
+    }
+  ]
+}
