@@ -1,6 +1,10 @@
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import SecretStr
+from pydantic_settings import (
+    BaseSettings,
+    SettingsConfigDict,
+)
 
 
 class Settings(BaseSettings):
@@ -9,6 +13,11 @@ class Settings(BaseSettings):
     postgres_db: str
     postgres_host: str
     postgres_port: int
+
+    openai_api_key: SecretStr
+    openai_embedding_model: str = (
+        "text-embedding-3-small"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
