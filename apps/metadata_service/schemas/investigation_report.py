@@ -96,3 +96,18 @@ class InvestigationReportResponse(BaseModel):
     reviewed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class InvestigationReviewEventResponse(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+        extra="forbid",
+    )
+
+    id: UUID
+    report_id: UUID
+    previous_status: InvestigationReportStatus
+    new_status: InvestigationReportStatus
+    reviewed_by: str
+    reviewer_feedback: str | None
+    created_at: datetime

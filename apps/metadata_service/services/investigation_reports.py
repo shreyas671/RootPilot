@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,9 @@ from apps.metadata_service.models.investigation_report import (
     InvestigationReportStatus,
 )
 from apps.metadata_service.models.job import Job, JobStatus
+from apps.metadata_service.models.investigation_review_event import (
+    InvestigationReviewEvent,
+)
 from apps.metadata_service.schemas.investigation_report import (
     InvestigationReportCreate,
     InvestigationReportReview,
@@ -224,6 +228,47 @@ async def get_investigation_report(
     return report
 
 
+async def list_investigation_review_events(
+    session: AsyncSession,
+    report_id: UUID,
+) -> list[InvestigationReviewEvent]:
+    try:
+        report = await session.get(
+            InvestigationReport,
+            report_id,
+        )
+    except SQLAlchemyError:
+        await session.rollback()
+        raise
+
+    if report is None:
+        await session.rollback()
+
+        raise InvestigationReportNotFoundError(
+            f"Investigation report {report_id} not found"
+        )
+
+    statement = (
+        select(InvestigationReviewEvent)
+        .where(
+            InvestigationReviewEvent.report_id
+            == report_id
+        )
+        .order_by(
+            InvestigationReviewEvent.created_at,
+            InvestigationReviewEvent.id,
+        )
+    )
+
+    try:
+        result = await session.execute(statement)
+    except SQLAlchemyError:
+        await session.rollback()
+        raise
+
+    return list(result.scalars().all())
+
+
 async def review_investigation_report(
     session: AsyncSession,
     report_id: UUID,
@@ -257,14 +302,23 @@ async def review_investigation_report(
             f"already been {report.status.value}"
         )
 
+    previous_status = report.status
     report.status = request.status
     report.reviewed_by = request.reviewed_by
     report.reviewer_feedback = (
         request.reviewer_feedback
     )
     report.reviewed_at = datetime.now(UTC)
+    review_event = InvestigationReviewEvent(
+        report_id=report.id,
+        previous_status=previous_status,
+        new_status=request.status,
+        reviewed_by=request.reviewed_by,
+        reviewer_feedback=request.reviewer_feedback,
+    )
 
     try:
+        session.add(review_event)
         await session.flush()
         await session.refresh(report)
         await session.commit()

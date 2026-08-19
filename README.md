@@ -1,8 +1,8 @@
 # RootPilot
 
-RootPilot is an in-progress, evidence-grounded incident investigation backend. It is being built to turn structured production evidence—symptoms, metrics, logs, and recent changes—into a reviewable root-cause analysis supported by operational runbook citations.
+RootPilot is an evidence-grounded incident investigation backend. It turns structured production evidence—symptoms, metrics, logs, and recent changes—into a reviewable root-cause analysis supported by operational runbook citations.
 
-The project currently implements the pre-evaluation MVP workflow:
+The repository implements the complete reduced MVP workflow:
 
 - A FastAPI metadata service with job and investigation-report APIs
 - A PostgreSQL-backed job, report, and review lifecycle
@@ -15,9 +15,12 @@ The project currently implements the pre-evaluation MVP workflow:
 - Structured OpenAI root-cause generation through the Responses API
 - Citation validation that rejects unsupported model output
 - A CLI path that can persist a validated assessment against a pending job
-- A deterministic unit-test suite that does not call live OpenAI or PostgreSQL services
+- Labeled retrieval and assessment evaluation cases with aggregate metrics
+- Immutable audit events for every human review decision
+- Deterministic unit tests plus a real PostgreSQL integration test
+- GitHub Actions CI for migrations, schema-drift checks, and all tests
 
-RootPilot now reaches the evaluation handoff: the complete retrieval, generation, validation, persistence, and basic review path exists. Retrieval/LLM evaluation datasets, an audit-event history, automated PostgreSQL integration tests, and production delivery capabilities remain future work. This README separates implemented behavior from planned behavior so that it remains an accurate learning guide.
+RootPilot now covers ingestion, retrieval, structured generation, grounding validation, persistence, human review, review auditing, and quality evaluation. The remaining items described as deferred are production-platform capabilities—such as authentication, background workers, persistent vector search, observability, and cloud deployment—not missing parts of the reduced MVP.
 
 ## Table of contents
 
@@ -37,6 +40,7 @@ RootPilot now reaches the evaluation handoff: the complete retrieval, generation
 - [Running the application](#running-the-application)
 - [Running semantic retrieval](#running-semantic-retrieval)
 - [Running grounded investigations](#running-grounded-investigations)
+- [Running pipeline evaluations](#running-pipeline-evaluations)
 - [Troubleshooting](#troubleshooting)
 - [Testing strategy](#testing-strategy)
 - [Important design decisions](#important-design-decisions)
@@ -88,9 +92,11 @@ The following table describes the repository as it exists today.
 | LangGraph investigation | Implemented | Retrieval, structured generation, citation validation, and low-relevance rejection are connected. |
 | LLM root-cause generation | Implemented | The OpenAI Responses API returns a validated `IncidentAssessment`. |
 | Persisted investigation report | Implemented | One report per job stores RCA fields, confidence, citations, and review state. |
-| Human approval/rejection | Implemented (basic) | Pending reports can be approved or rejected once with reviewer identity and feedback. |
-| RAG and LLM evaluation | Not implemented | Deterministic retrieval unit tests exist, but no evaluation suite yet. |
-| End-to-end integration tests | Not implemented | Current API database tests use fake sessions. |
+| Human approval/rejection | Implemented | Pending reports can be approved or rejected once with reviewer identity and feedback. |
+| Review audit trail | Implemented | Every decision creates an immutable status-transition event that can be retrieved through the API. |
+| RAG and LLM evaluation | Implemented | Labeled cases measure retrieval recall/ranking and structured assessment quality. |
+| End-to-end integration tests | Implemented | A real PostgreSQL test covers claim, workflow result persistence, approval, and audit history. |
+| Continuous integration | Implemented | GitHub Actions applies migrations, checks drift, and runs the full suite against PostgreSQL. |
 | Authentication and authorization | Deferred | Outside the reduced MVP. |
 | Worker queue and Redis | Deferred | Outside the reduced MVP. |
 | User interface | Deferred | The current interfaces are HTTP and CLI. |
@@ -172,11 +178,12 @@ A job is a persisted lifecycle record. It tracks an input path, current status, 
 
 ## Architecture overview
 
-There are three connected runtime surfaces:
+There are four connected runtime surfaces:
 
 1. The **metadata API**, which creates jobs and reads or reviews reports.
 2. The **retrieval CLI**, which demonstrates semantic runbook search without persistence.
 3. The **investigation CLI**, which can run ephemerally or claim a pending job and persist the validated assessment.
+4. The **evaluation CLI**, which runs labeled retrieval and assessment cases and emits machine-readable quality metrics.
 
 ```mermaid
 flowchart TD
@@ -184,13 +191,14 @@ flowchart TD
         HTTP[HTTP client]
         RCLI[Retrieval CLI]
         ICLI[Investigation CLI]
+        ECLI[Evaluation CLI]
     end
 
     subgraph Metadata[Metadata and review API]
         API[FastAPI application]
         JOBAPI[Job routes]
         REPORTAPI[Report and review routes]
-        ORM[SQLAlchemy job and report models]
+        ORM[SQLAlchemy job, report, and audit models]
         DB[(PostgreSQL)]
         MIG[Alembic migrations]
     end
@@ -212,6 +220,7 @@ flowchart TD
         VALIDATE[Incident ID and citation validation]
         EXEC[Execution coordinator]
         REPORT[Pending-review report]
+        EVAL[Retrieval and assessment evaluator]
     end
 
     HTTP --> API
@@ -226,6 +235,8 @@ flowchart TD
     RCLI --> RLOAD
     ICLI --> ILOAD
     ICLI --> RLOAD
+    ECLI --> ILOAD
+    ECLI --> RLOAD
     IFIX --> ILOAD
     RFILES --> RLOAD
     ILOAD --> TEXT
@@ -240,6 +251,9 @@ flowchart TD
     ICLI --> EXEC
     EXEC --> REPORT
     REPORT --> ORM
+    ECLI --> EVAL
+    EVAL --> COS
+    EVAL --> GRAPH
 ```
 
 ### Persisted execution boundary
@@ -279,6 +293,7 @@ sequenceDiagram
 | Report router | `apps/metadata_service/api/investigation_reports.py` | Retrieves reports and applies one-time approve/reject decisions. |
 | Retrieval command | `apps/metadata_service/commands/retrieve_runbooks.py` | Wires configuration, loaders, OpenAI embeddings, and the retriever into a runnable CLI. |
 | Investigation command | `apps/metadata_service/commands/investigate_incident.py` | Composes retrieval, LangGraph, structured analysis, optional job execution, and report persistence. |
+| Evaluation command | `apps/metadata_service/commands/evaluate_pipeline.py` | Runs the labeled dataset through retrieval and the grounded graph, then prints aggregate JSON metrics. |
 
 The interface layer performs wiring and transport work. Retrieval mathematics and file parsing remain in service modules so they can be tested independently.
 
@@ -293,6 +308,7 @@ The interface layer performs wiring and transport work. Retrieval mathematics an
 | Assessment schema | `schemas/assessment.py` | Validate the generated RCA, confidence, action lists, and citations. |
 | Investigation state | `schemas/investigation.py` | Define the typed state exchanged by LangGraph nodes. |
 | Report schemas | `schemas/investigation_report.py` | Validate report creation, API serialization, and review decisions. |
+| Evaluation schemas | `schemas/evaluation.py` | Validate labeled cases, per-case scores, and aggregate quality summaries. |
 
 Pydantic models form trust boundaries. Invalid or unexpected data should fail near ingestion instead of failing later inside retrieval or model prompting.
 
@@ -325,6 +341,7 @@ The retriever depends on the protocol, not directly on the OpenAI implementation
 | OpenAI analyst | `services/openai_analyst.py` | Calls the Responses API and parses output directly into `IncidentAssessment`. |
 | Investigation graph | `services/investigation_graph.py` | Retrieves evidence, applies the relevance threshold, generates an assessment, and validates grounding. |
 | Execution coordinator | `services/investigation_execution.py` | Claims a pending job, runs network work without an open DB session, then records success or failure. |
+| Evaluation service | `services/evaluation.py` | Measures retrieval recall/ranking and assessment grounding, expected evidence, terminology, actions, and confidence. |
 
 The graph refuses to call the analyst when no retrieved section reaches the configured minimum score. After analysis, it rejects an incident-ID mismatch and any citation that was not present in the retrieved context.
 
@@ -335,10 +352,11 @@ The graph refuses to call the analyst when no retrieved section reaches the conf
 | SQLAlchemy base | `models/base.py` | Defines shared metadata and deterministic database constraint names. |
 | Job model | `models/job.py` | Maps the job lifecycle record to the `jobs` table. |
 | Report model | `models/investigation_report.py` | Stores one structured assessment per job plus pending/approved/rejected review state. |
-| Report service | `services/investigation_reports.py` | Performs locked lifecycle transitions, report creation, failure recording, lookup, and one-time review. |
+| Review-event model | `models/investigation_review_event.py` | Stores the immutable before/after status, reviewer, feedback, and timestamp for a decision. |
+| Report service | `services/investigation_reports.py` | Performs locked lifecycle transitions, report creation, failure recording, lookup, one-time review, and audit-event retrieval. |
 | Database module | `database.py` | Builds the async database URL, engine, session factory, and FastAPI session dependency. |
 | Alembic environment | `migrations/env.py` | Runs online or offline migrations using application metadata. |
-| Migrations | `migrations/versions/` | Create job/report enums, tables, constraints, indexes, and the one-report-per-job foreign key. |
+| Migrations | `migrations/versions/` | Create job/report/review-event tables, shared enums, constraints, indexes, and foreign keys. |
 
 ### 7. Configuration layer
 
@@ -356,9 +374,11 @@ The tests are deliberately isolated:
 - Loader tests use prepared fixtures and temporary malformed files.
 - Graph and analyst tests use fake retrievers, analysts, and OpenAI responses.
 - Execution tests assert that database sessions close before network work begins.
-- Report tests exercise lifecycle, serialization, review, rollback, and row-lock behavior.
+- Report tests exercise lifecycle, serialization, review, audit history, rollback, and row-lock behavior.
+- Evaluation tests use deterministic retrieval and analyst fakes to verify every metric.
+- The opt-in integration test exercises the complete persisted lifecycle against migrated PostgreSQL.
 
-This allows the complete unit suite to run without PostgreSQL connectivity or OpenAI credits.
+This allows the unit suite to run without PostgreSQL connectivity or live OpenAI calls while CI additionally verifies the database boundary.
 
 ## Current execution flows
 
@@ -477,7 +497,7 @@ The analyst receives the incident and full retrieved-section content, including 
 
 ### Report review flow
 
-Reports are created with `pending_review`. `PATCH /investigation-reports/{report_id}/review` locks the row and allows exactly one transition to `approved` or `rejected`. Rejection requires non-empty reviewer feedback. A second decision returns HTTP `409`.
+Reports are created with `pending_review`. `PATCH /investigation-reports/{report_id}/review` locks the row and allows exactly one transition to `approved` or `rejected`. Rejection requires non-empty reviewer feedback. The report update and immutable `investigation_review_events` insert occur in the same transaction, so they either both commit or both roll back. A second decision returns HTTP `409`; `GET /investigation-reports/{report_id}/review-events` returns the ordered audit history.
 
 ## Data contracts
 
@@ -561,6 +581,10 @@ Each parsed Markdown section becomes a `RunbookSection`:
 ### Investigation report
 
 The `investigation_reports` table stores the assessment fields directly. `job_id` is a unique foreign key, so one job can produce at most one report. The status enum is `pending_review`, `approved`, or `rejected`. Reviewer identity, feedback, and timestamp remain null until a decision is recorded. A database check constraint independently enforces the confidence range.
+
+### Investigation review event
+
+The `investigation_review_events` table is append-only through the application service. Each row records the report ID, previous status, new status, reviewer identity, optional feedback, and creation time. The event shares the report status enum and is deleted only if its parent report is deleted through the foreign-key cascade.
 
 ## Runbook chunking and citations
 
@@ -788,7 +812,7 @@ No other transitions are allowed. For example:
 
 Status updates retrieve the row using `SELECT ... FOR UPDATE` semantics through `with_for_update=True`. With PostgreSQL, this serializes concurrent updates to the same job row so that two requests cannot both apply transitions based on the same stale status.
 
-The unit suite verifies that route code requests `with_for_update=True`. Actual concurrent behavior still needs to be proven by a PostgreSQL integration test.
+The unit suite verifies that route code requests `with_for_update=True`. The PostgreSQL integration test verifies the complete persisted transition path; a dedicated multi-connection race test remains a production-hardening enhancement.
 
 ### Endpoints
 
@@ -800,6 +824,7 @@ The unit suite verifies that route code requests `with_for_update=True`. Actual 
 | `GET` | `/jobs/{job_id}` | `200` or `404` | Retrieve one job. |
 | `PATCH` | `/jobs/{job_id}/status` | `200`, `404`, or `409` | Apply an allowed lifecycle transition. |
 | `GET` | `/investigation-reports/{report_id}` | `200` or `404` | Retrieve a persisted assessment and review state. |
+| `GET` | `/investigation-reports/{report_id}/review-events` | `200` or `404` | Retrieve the ordered immutable review history. |
 | `PATCH` | `/investigation-reports/{report_id}/review` | `200`, `404`, `409`, or `422` | Approve or reject a pending report. |
 
 ### Create a job
@@ -884,6 +909,13 @@ curl -X PATCH \
 
 Rejecting uses `"status":"rejected"` and requires a non-empty `reviewer_feedback`. Review decisions are terminal in the current MVP.
 
+Retrieve the audit history after a decision:
+
+```bash
+curl \
+  http://127.0.0.1:8000/investigation-reports/<report-id>/review-events
+```
+
 ## Repository structure
 
 ```text
@@ -894,14 +926,17 @@ rootpilot/
 │       │   ├── investigation_reports.py # Report lookup and review endpoints
 │       │   └── jobs.py                  # Job HTTP endpoints and transitions
 │       ├── commands/
+│       │   ├── evaluate_pipeline.py     # Live labeled RAG/assessment evaluation
 │       │   ├── investigate_incident.py  # RAG/LLM CLI with optional persistence
 │       │   └── retrieve_runbooks.py     # Live semantic-retrieval CLI
 │       ├── models/
 │       │   ├── base.py                  # SQLAlchemy declarative base
 │       │   ├── investigation_report.py  # Report ORM model and review status
+│       │   ├── investigation_review_event.py # Immutable review audit row
 │       │   └── job.py                   # Job ORM model and status enum
 │       ├── schemas/
 │       │   ├── assessment.py            # Structured RCA contract
+│       │   ├── evaluation.py            # Cases, scores, and summaries
 │       │   ├── incident.py              # Incident evidence contracts
 │       │   ├── investigation.py         # Typed LangGraph state
 │       │   ├── investigation_report.py  # Persistence/review contracts
@@ -911,6 +946,8 @@ rootpilot/
 │       ├── services/
 │       │   ├── analyst.py               # Analyst protocol
 │       │   ├── embedding.py             # Embedding protocol
+│       │   ├── evaluation.py             # Retrieval/assessment scoring
+│       │   ├── evaluation_loader.py      # Validated evaluation dataset loader
 │       │   ├── investigation_execution.py # Job/graph/report coordination
 │       │   ├── investigation_graph.py   # LangGraph workflow and grounding
 │       │   ├── investigation_reports.py # Persistence and lifecycle service
@@ -922,14 +959,16 @@ rootpilot/
 │       ├── database.py                   # Async engine and sessions
 │       └── main.py                       # FastAPI application
 ├── data/
+│   ├── evaluations/                     # Labeled retrieval and RCA cases
 │   ├── incidents/                       # Prepared incident JSON
 │   └── runbooks/                        # Curated Markdown runbooks
 ├── migrations/
 │   ├── versions/                        # Alembic schema revisions
 │   └── env.py                           # Async migration environment
 ├── tests/
-│   ├── integration/                     # Reserved for PostgreSQL tests
+│   ├── integration/                     # Real persisted PostgreSQL workflow
 │   └── unit/                            # Deterministic application tests
+├── .github/workflows/ci.yml             # Migration and test automation
 ├── compose.yaml                         # PostgreSQL 18 development service
 ├── alembic.ini                          # Migration configuration
 ├── pyproject.toml                       # Project metadata and dependencies
@@ -1103,6 +1142,41 @@ uv run python -m \
 
 The job must still be `pending`; do not manually move it to `processing`. The execution coordinator locks and claims it, closes the database session, runs the graph, and finally stores a `pending_review` report while marking the job `completed`. A graph or validation exception marks the job `failed`. The command prints the report UUID needed by the report API.
 
+## Running pipeline evaluations
+
+The default labeled dataset is `data/evaluations/mvp_cases.json`. It contains separate retrieval and structured-assessment cases for the included database and Kafka incidents. Run it with the configured live embedding and analysis providers:
+
+```bash
+uv run python -m \
+  apps.metadata_service.commands.evaluate_pipeline
+```
+
+Use another validated JSON dataset when expanding the benchmark:
+
+```bash
+uv run python -m \
+  apps.metadata_service.commands.evaluate_pipeline \
+  --dataset path/to/evaluation_cases.json
+```
+
+The command emits a JSON `PipelineEvaluationSummary`. Retrieval metrics are:
+
+- `recall_at_k`: fraction of expected citations found in the retained top-K results
+- `reciprocal_rank`: inverse rank of the first expected citation
+- aggregate mean recall, mean reciprocal rank, and case pass rate
+
+Assessment metrics are:
+
+- incident-ID agreement
+- proof that every generated citation was retrieved
+- recall of the citations expected by the labeled case
+- required root-cause-term and recommended-action-term coverage
+- minimum-confidence compliance
+- a per-case validation error when the grounded graph rejects the result
+- aggregate mean coverage and case pass rate
+
+The evaluation schemas reject unknown fields, duplicate case IDs, duplicate expected citations, invalid identifiers, empty term lists, and out-of-range limits, scores, or confidence values. Unit tests exercise the scoring logic with deterministic providers; the live command is intentionally not part of CI because it would make network calls and produce model-dependent results.
+
 ## Troubleshooting
 
 ### OpenAI returns HTTP 429 with `credit_balance_exhausted`
@@ -1176,6 +1250,8 @@ Scores and order can change when the embedding model, model version, incident te
 
 ### Run all tests
 
+Run the offline suite, which skips the PostgreSQL integration test:
+
 ```bash
 uv run pytest
 ```
@@ -1184,6 +1260,12 @@ Verbose output:
 
 ```bash
 uv run pytest -v
+```
+
+With PostgreSQL running and migrated, include the integration test:
+
+```bash
+RUN_POSTGRES_INTEGRATION=1 uv run pytest
 ```
 
 ### Run focused test groups
@@ -1197,12 +1279,15 @@ uv run pytest -v tests/unit/test_investigation_graph.py
 uv run pytest -v tests/unit/test_investigation_execution.py
 uv run pytest -v tests/unit/test_investigation_report_service.py
 uv run pytest -v tests/unit/test_investigation_reports_api.py
+uv run pytest -v tests/unit/test_evaluation.py
+uv run pytest -v tests/unit/test_evaluation_loader.py
 uv run pytest -v tests/unit/test_jobs_api.py
+RUN_POSTGRES_INTEGRATION=1 uv run pytest -v tests/integration
 ```
 
 ### Current coverage by behavior
 
-The 93 unit tests cover:
+The suite contains 105 deterministic unit/API tests and one PostgreSQL integration test. Together they cover:
 
 - Incident fixture discovery and nested model parsing
 - Rejection of incomplete incident evidence
@@ -1228,8 +1313,11 @@ The 93 unit tests cover:
 - The absence of an open database session during graph network work
 - Report table constraints and one-report-per-job mapping
 - Report creation, lookup, serialization, approval, and rejection
+- Atomic review-event creation and ordered audit-history retrieval
 - Terminal review conflict handling and reviewer-feedback requirements
 - Persisted and non-persisted investigation CLI formatting and wiring
+- Evaluation dataset validation, retrieval recall/ranking, and assessment scoring
+- A real job claim → validated result → report → approval → audit-event database flow
 
 ### Why tests use fakes
 
@@ -1241,12 +1329,15 @@ Unit tests must be fast and repeatable. Live systems introduce unrelated failure
 
 The fake keyword embedding provider converts database-related words and Kafka-related words into a two-dimensional test vector. It is not used in production; it makes the expected ranking deterministic.
 
-The fake database session imitates only the SQLAlchemy operations required by the routes. This verifies application behavior but does not prove that the migration and endpoints work together against real PostgreSQL. That gap belongs to future integration tests.
+The fake database session imitates only the SQLAlchemy operations required by unit-tested services and routes. The separate opt-in integration test uses the real async engine and migrated PostgreSQL schema to verify persistence behavior without making OpenAI calls.
+
+GitHub Actions starts a PostgreSQL service container, installs the locked dependencies, applies every migration, checks for model/migration drift, enables the integration test, runs all 106 tests, and checks the diff for whitespace errors.
 
 ### Pre-commit verification
 
 ```bash
-uv run pytest
+uv run alembic check
+RUN_POSTGRES_INTEGRATION=1 uv run pytest
 git diff --check
 git status --short
 ```
@@ -1291,22 +1382,20 @@ The repository has been built in narrow slices: schema, loader, chunking, text c
 
 These are deliberate boundaries of the current implementation, not hidden features:
 
-1. **No RAG/LLM evaluation suite:** thresholds, recall, ranking quality, answer quality, and grounding rates have not been measured against a labeled dataset.
+1. **Small evaluation corpus:** the included benchmark proves the framework and covers the two prepared scenarios; production threshold calibration requires a larger representative incident set and repeated live runs.
 2. **No vector persistence:** all embeddings disappear when the process exits.
 3. **Repeated embedding cost:** each CLI invocation re-embeds every runbook section.
 4. **Linear search:** every query is compared with every stored vector.
-5. **Uncalibrated relevance threshold:** the guard exists, but its default has not been selected from evaluation data.
-6. **Section-only top-K:** high-ranked signal sections can crowd out remediation or verification sections from the same runbook.
-7. **No persisted retrieval trace:** reports store citation IDs, but not the exact retrieved scores, chunk text, prompt version, or model versions used for that run.
-8. **Basic review only:** approve/reject is terminal and row-locked, but there is no immutable audit-event history, reassignment, reopening, or multi-reviewer policy.
-9. **No authentication or authorization:** job and review endpoints are development-only, so reviewer identity is asserted by the caller.
-10. **No background worker:** the CLI executes investigations; creating a job through HTTP alone does not enqueue work.
-11. **No application-level resilience policy:** SDK failures are recorded on persisted jobs, but RootPilot does not yet define its own timeouts, retry budget, backoff, or error taxonomy.
-12. **Configuration coupling:** database-only commands still load the shared settings model containing OpenAI configuration.
-13. **Input-path trust boundary unfinished:** `input_path` is metadata; the investigation CLI selects a prepared incident by ID rather than reading an arbitrary job path.
-14. **Database tests are mocked:** the migration round trip has been exercised locally, but PostgreSQL integration tests are not automated.
-15. **No production observability:** structured logging, tracing, metrics, alerting, and audit events are not implemented.
-16. **No deployment workflow:** CI, containerized application deployment, and environment promotion are still pending.
+5. **Section-only top-K:** high-ranked signal sections can crowd out remediation or verification sections from the same runbook.
+6. **No persisted retrieval trace:** reports store citation IDs, but not the exact retrieved scores, chunk text, prompt version, or model versions used for that run.
+7. **Single-decision review policy:** approve/reject is terminal and audited, but reassignment, reopening, and multi-reviewer policies are not part of the MVP.
+8. **No authentication or authorization:** job and review endpoints are development-only, so reviewer identity is asserted by the caller.
+9. **No background worker:** the CLI executes investigations; creating a job through HTTP alone does not enqueue work.
+10. **No application-level resilience policy:** SDK failures are recorded on persisted jobs, but RootPilot does not define its own retry budget, backoff, or provider error taxonomy.
+11. **Configuration coupling:** database-only commands still load the shared settings model containing OpenAI configuration.
+12. **Input-path trust boundary unfinished:** `input_path` is metadata; the investigation CLI selects a prepared incident by ID rather than reading an arbitrary job path.
+13. **No production observability:** application-wide structured logging, tracing, metrics, and alerting are deferred; human decisions do have durable audit events.
+14. **No application deployment pipeline:** CI is implemented, while containerized application delivery and environment promotion remain deferred.
 
 ## Roadmap
 
@@ -1347,7 +1436,7 @@ START
   → END
 ```
 
-### Completed persistence and basic review
+### Completed persistence and review
 
 - [x] Add investigation-report persistence
 - [x] Store diagnosis, remediation, verification, confidence, and citations
@@ -1356,22 +1445,21 @@ START
 - [x] Record execution failures on jobs
 - [x] Mark generated reports as pending review
 - [x] Add one-time approve/reject operations and reviewer feedback
-- [ ] Record an audit trail
+- [x] Record immutable review audit events
+- [x] Add an API endpoint for ordered review history
 
-### Next handoff: evaluation and human-review hardening
+### Completed evaluation and verification
 
-- [ ] Build retrieval evaluation cases with expected citation sets
-- [ ] Measure top-K recall and ranking quality
-- [ ] Calibrate the minimum relevance threshold
-- [ ] Evaluate structured RCA fields and citation validity
-- [ ] Persist retrieval/model/prompt provenance for repeatability
-- [ ] Add an immutable review audit trail
-- [ ] Define reviewer authorization and reassessment policy
-- [ ] Add PostgreSQL integration tests
-- [ ] Add end-to-end investigation tests
-- [ ] Add error-handling and retry tests
-- [ ] Complete demo documentation
-- [ ] Add deployment and CI workflows
+- [x] Build validated retrieval cases with expected citation sets
+- [x] Measure top-K recall and reciprocal rank
+- [x] Evaluate structured RCA fields, grounding, actions, and confidence
+- [x] Add deterministic evaluation tests
+- [x] Add a real PostgreSQL persisted-workflow integration test
+- [x] Verify Alembic upgrade, downgrade, and schema-drift behavior
+- [x] Complete the architecture and operating documentation
+- [x] Add GitHub Actions CI with PostgreSQL
+
+The evaluation runner is complete. Selecting a production threshold, expanding the labeled corpus, and recording model/prompt/retrieval provenance are operational hardening work that depends on representative live data rather than additional MVP plumbing.
 
 ### Deferred production capabilities
 
@@ -1379,6 +1467,9 @@ START
 - Redis or another queue backend
 - Persistent vector index such as pgvector
 - Authentication and role-based access control
+- Reviewer reassignment, reopening, or multi-reviewer policy
+- Persisted model, prompt, and retrieval provenance
+- Provider-specific retry and timeout policy
 - Web user interface
 - Production metrics, dashboards, and tracing
 - Cloud deployment and autoscaling
@@ -1458,6 +1549,7 @@ Read:
 
 - `models/job.py`
 - `models/investigation_report.py`
+- `models/investigation_review_event.py`
 - `schemas/job.py`
 - `schemas/investigation_report.py`
 - `database.py`
@@ -1465,11 +1557,15 @@ Read:
 - `api/investigation_reports.py`
 - `services/investigation_reports.py`
 - `services/investigation_execution.py`
-- both Alembic migrations
+- all Alembic migrations
 
-Follow a pending job through claim, network execution, report creation, completion, and review. Confirm that the execution tests observe a closed session before the workflow begins.
+Follow a pending job through claim, network execution, report creation, completion, review, and audit-event retrieval. Confirm that the execution tests observe a closed session before the workflow begins and that the integration test observes all persisted states.
 
-### 9. Use tests as executable documentation
+### 9. Study evaluation
+
+Read `schemas/evaluation.py`, `services/evaluation_loader.py`, `services/evaluation.py`, and `commands/evaluate_pipeline.py`. Trace one labeled case from JSON validation through retrieval or graph execution to its per-case and aggregate metrics.
+
+### 10. Use tests as executable documentation
 
 For every module above, read its corresponding test. Tests state the behavior more precisely than comments and make edge cases visible.
 
@@ -1499,6 +1595,9 @@ The current code attempts to preserve these rules:
 - New reports begin in `pending_review`.
 - A report can receive only one terminal approve/reject decision.
 - Rejection requires non-empty reviewer feedback.
+- A successful review creates exactly one immutable before/after audit event in the same transaction.
+- Evaluation datasets contain unique case IDs and expected citation IDs.
+- Evaluation outputs keep every score and aggregate inside `[0.0, 1.0]`.
 - Caught SQLAlchemy failures in job routes explicitly roll back the session before returning HTTP 500.
 
 These invariants treat nondeterministic model output as untrusted data. Pydantic validates its structure, and the graph adds provenance checks that cannot be expressed by field types alone.
@@ -1522,4 +1621,4 @@ These invariants treat nondeterministic model output as untrusted data. Pydantic
 
 ---
 
-RootPilot has reached the evaluation and human-review-hardening handoff. The next work should measure retrieval and assessment quality, calibrate the relevance threshold, persist provenance, and strengthen reviewer auditability before expanding deployment scope.
+RootPilot’s reduced MVP is complete: it can retrieve grounded runbook evidence, generate and validate an assessment, persist it, require and audit human review, and measure pipeline quality. Further work is production scaling and governance rather than unfinished core workflow.

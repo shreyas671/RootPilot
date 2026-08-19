@@ -1,0 +1,62 @@
+{
+  "retrieval_cases": [
+    {
+      "case_id": "RET-DB-001",
+      "incident_id": "INC-DB-001",
+      "expected_citation_ids": [
+        "RB-DB-001#diagnosis",
+        "RB-DB-001#likely-causes"
+      ],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0
+    },
+    {
+      "case_id": "RET-KAFKA-001",
+      "incident_id": "INC-KAFKA-001",
+      "expected_citation_ids": [
+        "RB-KAFKA-001#diagnosis",
+        "RB-KAFKA-001#likely-causes"
+      ],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0
+    }
+  ],
+  "assessment_cases": [
+    {
+      "case_id": "RCA-DB-001",
+      "incident_id": "INC-DB-001",
+      "expected_citation_ids": [
+        "RB-DB-001#diagnosis",
+        "RB-DB-001#likely-causes"
+      ],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0,
+      "required_root_cause_terms": [
+        "connection",
+        "pool"
+      ],
+      "required_action_terms": [
+        "connection"
+      ],
+      "minimum_confidence": 0.5
+    },
+    {
+      "case_id": "RCA-KAFKA-001",
+      "incident_id": "INC-KAFKA-001",
+      "expected_citation_ids": [
+        "RB-KAFKA-001#diagnosis",
+        "RB-KAFKA-001#likely-causes"
+      ],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0,
+      "required_root_cause_terms": [
+        "event",
+        "schema"
+      ],
+      "required_action_terms": [
+        "event"
+      ],
+      "minimum_confidence": 0.5
+    }
+  ]
+}

@@ -8,6 +8,9 @@ from apps.metadata_service.models.investigation_report import (
     InvestigationReportStatus,
 )
 from apps.metadata_service.models.job import Job, JobStatus
+from apps.metadata_service.models.investigation_review_event import (
+    InvestigationReviewEvent,
+)
 from apps.metadata_service.schemas.assessment import (
     IncidentAssessment,
 )
@@ -23,6 +26,7 @@ from apps.metadata_service.services.investigation_reports import (
     JobNotProcessingError,
     create_investigation_report,
     get_investigation_report,
+    list_investigation_review_events,
     mark_investigation_job_failed,
     review_investigation_report,
     start_investigation_job,
@@ -38,6 +42,12 @@ class FakeSession:
         self.added_report: (
             InvestigationReport | None
         ) = None
+        self.added_review_event: (
+            InvestigationReviewEvent | None
+        ) = None
+        self.review_events: list[
+            InvestigationReviewEvent
+        ] = []
         self.get_calls: list[
             tuple[type[object], UUID, bool]
         ] = []
@@ -46,9 +56,15 @@ class FakeSession:
 
     def add(
         self,
-        report: InvestigationReport,
+        record: (
+            InvestigationReport
+            | InvestigationReviewEvent
+        ),
     ) -> None:
-        self.added_report = report
+        if isinstance(record, InvestigationReport):
+            self.added_report = record
+        else:
+            self.added_review_event = record
 
     async def get(
         self,
@@ -98,6 +114,31 @@ class FakeSession:
 
         if self.job_to_return is not None:
             self.job_to_return.updated_at = now
+
+        if self.added_review_event is not None:
+            self.added_review_event.id = uuid4()
+            self.added_review_event.created_at = now
+            self.review_events.append(
+                self.added_review_event
+            )
+
+    async def execute(self, statement: object) -> object:
+        class FakeScalarResult:
+            def __init__(
+                self,
+                events: list[InvestigationReviewEvent],
+            ) -> None:
+                self.events = events
+
+            def scalars(self) -> "FakeScalarResult":
+                return self
+
+            def all(
+                self,
+            ) -> list[InvestigationReviewEvent]:
+                return self.events
+
+        return FakeScalarResult(self.review_events)
 
     async def refresh(
         self,
@@ -379,6 +420,42 @@ async def test_review_pending_report() -> None:
         True,
     )
     assert session.committed is True
+    assert session.added_review_event is not None
+    assert session.added_review_event.report_id == report.id
+    assert session.added_review_event.previous_status is (
+        InvestigationReportStatus.PENDING_REVIEW
+    )
+    assert session.added_review_event.new_status is (
+        InvestigationReportStatus.APPROVED
+    )
+
+
+@pytest.mark.anyio
+async def test_list_review_events() -> None:
+    session = FakeSession()
+    report = make_report(
+        InvestigationReportStatus.APPROVED
+    )
+    session.report_to_return = report
+    event = InvestigationReviewEvent(
+        id=uuid4(),
+        report_id=report.id,
+        previous_status=(
+            InvestigationReportStatus.PENDING_REVIEW
+        ),
+        new_status=InvestigationReportStatus.APPROVED,
+        reviewed_by="operator@example.com",
+        reviewer_feedback=None,
+        created_at=datetime.now(UTC),
+    )
+    session.review_events = [event]
+
+    result = await list_investigation_review_events(
+        session=session,
+        report_id=report.id,
+    )
+
+    assert result == [event]
 
 
 @pytest.mark.anyio

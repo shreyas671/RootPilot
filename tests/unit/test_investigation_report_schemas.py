@@ -15,6 +15,7 @@ from apps.metadata_service.schemas.investigation_report import (
     InvestigationReportCreate,
     InvestigationReportResponse,
     InvestigationReportReview,
+    InvestigationReviewEventResponse,
 )
 
 
@@ -149,3 +150,35 @@ def test_report_response_reads_model_attributes() -> None:
     assert response.citation_ids == [
         "RB-DB-001#connection-exhaustion"
     ]
+
+
+def test_review_event_response_reads_model_attributes() -> None:
+    event_id = uuid4()
+    report_id = uuid4()
+    now = datetime.now(UTC)
+    record = SimpleNamespace(
+        id=event_id,
+        report_id=report_id,
+        previous_status=(
+            InvestigationReportStatus.PENDING_REVIEW
+        ),
+        new_status=InvestigationReportStatus.APPROVED,
+        reviewed_by="operator@example.com",
+        reviewer_feedback=None,
+        created_at=now,
+    )
+
+    response = (
+        InvestigationReviewEventResponse.model_validate(
+            record
+        )
+    )
+
+    assert response.id == event_id
+    assert response.report_id == report_id
+    assert response.previous_status is (
+        InvestigationReportStatus.PENDING_REVIEW
+    )
+    assert response.new_status is (
+        InvestigationReportStatus.APPROVED
+    )

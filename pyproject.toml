@@ -1,7 +1,7 @@
 [project]
 name = "rootpilot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Evidence-grounded incident investigation with RAG, human review, and evaluation"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -19,4 +19,9 @@ dependencies = [
 dev = [
     "httpx2>=2.9.1",
     "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: requires a migrated PostgreSQL database",
 ]

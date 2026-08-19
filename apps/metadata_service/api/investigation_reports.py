@@ -14,11 +14,13 @@ from apps.metadata_service.database import get_db_session
 from apps.metadata_service.schemas.investigation_report import (
     InvestigationReportResponse,
     InvestigationReportReview,
+    InvestigationReviewEventResponse,
 )
 from apps.metadata_service.services.investigation_reports import (
     InvestigationReportAlreadyReviewedError,
     InvestigationReportNotFoundError,
     get_investigation_report,
+    list_investigation_review_events,
     review_investigation_report,
 )
 
@@ -61,6 +63,43 @@ async def get_report(
     return InvestigationReportResponse.model_validate(
         report
     )
+
+
+@router.get(
+    "/{report_id}/review-events",
+    response_model=list[InvestigationReviewEventResponse],
+)
+async def get_review_events(
+    report_id: UUID,
+    session: Annotated[
+        AsyncSession,
+        Depends(get_db_session),
+    ],
+) -> list[InvestigationReviewEventResponse]:
+    try:
+        events = await list_investigation_review_events(
+            session=session,
+            report_id=report_id,
+        )
+    except InvestigationReportNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Investigation report not found",
+        ) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail="Unable to retrieve review events",
+        ) from exc
+
+    return [
+        InvestigationReviewEventResponse.model_validate(
+            event
+        )
+        for event in events
+    ]
 
 
 @router.patch(
