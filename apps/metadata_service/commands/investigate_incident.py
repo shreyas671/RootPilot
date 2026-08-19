@@ -1,9 +1,14 @@
 import argparse
 import asyncio
+from uuid import UUID
 
 from openai import AsyncOpenAI
 
 from apps.metadata_service.config import get_settings
+from apps.metadata_service.database import get_session_factory
+from apps.metadata_service.models.investigation_report import (
+    InvestigationReport,
+)
 from apps.metadata_service.schemas.assessment import (
     IncidentAssessment,
 )
@@ -12,6 +17,9 @@ from apps.metadata_service.schemas.retrieval import (
 )
 from apps.metadata_service.services.incident_loader import (
     load_incidents,
+)
+from apps.metadata_service.services.investigation_execution import (
+    execute_and_persist_investigation,
 )
 from apps.metadata_service.services.investigation_graph import (
     build_investigation_graph,
@@ -41,6 +49,17 @@ def positive_integer(value: str) -> int:
     return parsed_value
 
 
+def relevance_score(value: str) -> float:
+    parsed_value = float(value)
+
+    if not -1.0 <= parsed_value <= 1.0:
+        raise argparse.ArgumentTypeError(
+            "value must be between -1.0 and 1.0"
+        )
+
+    return parsed_value
+
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -54,10 +73,28 @@ def parse_arguments() -> argparse.Namespace:
         help="Incident ID such as INC-DB-001",
     )
     parser.add_argument(
+        "--job-id",
+        type=UUID,
+        default=None,
+        help=(
+            "Pending job UUID used to persist "
+            "the investigation report"
+        ),
+    )
+    parser.add_argument(
         "--limit",
         type=positive_integer,
         default=3,
         help="Maximum number of runbook sections to retrieve",
+    )
+    parser.add_argument(
+        "--minimum-score",
+        type=relevance_score,
+        default=0.0,
+        help=(
+            "Minimum cosine-similarity score required "
+            "for runbook evidence"
+        ),
     )
 
     return parser.parse_args()
@@ -157,9 +194,39 @@ def format_investigation_result(
     return "\n".join(lines)
 
 
+def format_persisted_investigation_result(
+    report: InvestigationReport,
+    embedding_model: str,
+    analysis_model: str,
+) -> str:
+    lines = [
+        f"Report ID: {report.id}",
+        f"Job ID: {report.job_id}",
+        f"Incident: {report.incident_id}",
+        f"Review status: {report.status.value}",
+        f"Embedding model: {embedding_model}",
+        f"Analysis model: {analysis_model}",
+        "",
+        "Incident assessment:",
+        f"Root cause: {report.root_cause}",
+        f"Confidence: {report.confidence:.2f}",
+        "",
+        "Citations:",
+    ]
+
+    lines.extend(
+        f"- {citation_id}"
+        for citation_id in report.citation_ids
+    )
+
+    return "\n".join(lines)
+
+
 async def investigate_incident(
     incident_id: str,
     retrieval_limit: int,
+    job_id: UUID | None = None,
+    minimum_relevance_score: float = 0.0,
 ) -> None:
     if retrieval_limit < 1:
         raise ValueError(
@@ -207,7 +274,37 @@ async def investigate_incident(
             retriever=retriever,
             analyst=analyst,
             retrieval_limit=retrieval_limit,
+            minimum_relevance_score=(
+                minimum_relevance_score
+            ),
         )
+
+        if job_id is not None:
+            report = (
+                await execute_and_persist_investigation(
+                    job_id=job_id,
+                    incident=incident,
+                    workflow=graph,
+                    session_factory=(
+                        get_session_factory()
+                    ),
+                )
+            )
+
+            output = (
+                format_persisted_investigation_result(
+                    report=report,
+                    embedding_model=(
+                        settings.openai_embedding_model
+                    ),
+                    analysis_model=(
+                        settings.openai_analysis_model
+                    ),
+                )
+            )
+
+            print(output)
+            return
 
         result = await graph.ainvoke(
             {
@@ -246,6 +343,10 @@ def main() -> None:
         investigate_incident(
             incident_id=arguments.incident_id,
             retrieval_limit=arguments.limit,
+            job_id=arguments.job_id,
+            minimum_relevance_score=(
+                arguments.minimum_score
+            ),
         )
     )
 

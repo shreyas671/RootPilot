@@ -23,6 +23,10 @@ class JobNotProcessingError(ValueError):
     pass
 
 
+class JobNotPendingError(ValueError):
+    pass
+
+
 class InvestigationReportNotFoundError(LookupError):
     pass
 
@@ -31,6 +35,99 @@ class InvestigationReportAlreadyReviewedError(
     ValueError
 ):
     pass
+
+
+async def start_investigation_job(
+    session: AsyncSession,
+    job_id: UUID,
+) -> Job:
+    try:
+        job = await session.get(
+            Job,
+            job_id,
+            with_for_update=True,
+        )
+    except SQLAlchemyError:
+        await session.rollback()
+        raise
+
+    if job is None:
+        await session.rollback()
+
+        raise JobNotFoundError(
+            f"Job {job_id} not found"
+        )
+
+    if job.status is not JobStatus.PENDING:
+        await session.rollback()
+
+        raise JobNotPendingError(
+            f"Job {job_id} must be pending "
+            "before investigation starts"
+        )
+
+    job.status = JobStatus.PROCESSING
+    job.started_at = datetime.now(UTC)
+    job.completed_at = None
+    job.error_message = None
+
+    try:
+        await session.flush()
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        raise
+
+    return job
+
+
+async def mark_investigation_job_failed(
+    session: AsyncSession,
+    job_id: UUID,
+    error_message: str,
+) -> Job:
+    try:
+        job = await session.get(
+            Job,
+            job_id,
+            with_for_update=True,
+        )
+    except SQLAlchemyError:
+        await session.rollback()
+        raise
+
+    if job is None:
+        await session.rollback()
+
+        raise JobNotFoundError(
+            f"Job {job_id} not found"
+        )
+
+    if job.status is not JobStatus.PROCESSING:
+        await session.rollback()
+
+        raise JobNotProcessingError(
+            f"Job {job_id} must be processing "
+            "before it can be marked failed"
+        )
+
+    normalized_error = error_message.strip()
+
+    if not normalized_error:
+        normalized_error = "Investigation execution failed"
+
+    job.status = JobStatus.FAILED
+    job.completed_at = datetime.now(UTC)
+    job.error_message = normalized_error[:4000]
+
+    try:
+        await session.flush()
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        raise
+
+    return job
 
 
 async def create_investigation_report(

@@ -13,6 +13,7 @@ from apps.metadata_service.services.incident_loader import (
     load_incidents,
 )
 from apps.metadata_service.services.investigation_graph import (
+    NoRelevantRunbookContextError,
     build_investigation_graph,
 )
 from apps.metadata_service.services.runbook_loader import (
@@ -182,6 +183,74 @@ def test_graph_rejects_invalid_retrieval_limit() -> None:
             analyst=analyst,
             retrieval_limit=0,
         )
+
+
+@pytest.mark.parametrize(
+    "minimum_relevance_score",
+    [-1.01, 1.01],
+)
+def test_graph_rejects_invalid_minimum_score(
+    minimum_relevance_score: float,
+) -> None:
+    retriever = FakeRunbookRetriever(results=[])
+    analyst = FakeIncidentAnalyst(
+        assessment=make_assessment(
+            incident_id="INC-DB-001",
+            citation_id="RB-DB-001#diagnosis",
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Minimum relevance score must be between",
+    ):
+        build_investigation_graph(
+            retriever=retriever,
+            analyst=analyst,
+            minimum_relevance_score=(
+                minimum_relevance_score
+            ),
+        )
+
+
+@pytest.mark.anyio
+async def test_graph_stops_when_context_is_not_relevant() -> None:
+    incident = load_incidents()["INC-DB-001"]
+    section = next(
+        section
+        for section in load_runbooks()
+        if section.citation_id == "RB-DB-001#diagnosis"
+    )
+    analyst = FakeIncidentAnalyst(
+        assessment=make_assessment(
+            incident_id=incident.incident_id,
+            citation_id=section.citation_id,
+        )
+    )
+    graph = build_investigation_graph(
+        retriever=FakeRunbookRetriever(
+            results=[
+                RetrievedRunbookSection(
+                    section=section,
+                    score=0.24,
+                )
+            ],
+        ),
+        analyst=analyst,
+        minimum_relevance_score=0.25,
+    )
+
+    with pytest.raises(
+        NoRelevantRunbookContextError,
+        match="No runbook section met",
+    ):
+        await graph.ainvoke(
+            {
+                "incident": incident,
+            }
+        )
+
+    assert analyst.calls == []
 
 @pytest.mark.anyio
 async def test_graph_rejects_assessment_for_different_incident() -> None:

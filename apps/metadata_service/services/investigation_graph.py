@@ -18,14 +18,25 @@ from apps.metadata_service.services.retriever import (
 )
 
 
+class NoRelevantRunbookContextError(ValueError):
+    pass
+
+
 def build_investigation_graph(
     retriever: RunbookRetriever,
     analyst: IncidentAnalyst,
     retrieval_limit: int = 3,
+    minimum_relevance_score: float = 0.0,
 ) -> CompiledStateGraph:
     if retrieval_limit < 1:
         raise ValueError(
             "Retrieval limit must be at least 1"
+        )
+
+    if not -1.0 <= minimum_relevance_score <= 1.0:
+        raise ValueError(
+            "Minimum relevance score must be between "
+            "-1.0 and 1.0"
         )
 
     async def retrieve_runbook_context(
@@ -34,10 +45,22 @@ def build_investigation_graph(
         str,
         list[RetrievedRunbookSection],
     ]:
-        retrieved_sections = await retriever.retrieve(
+        candidates = await retriever.retrieve(
             incident=state["incident"],
             limit=retrieval_limit,
         )
+
+        retrieved_sections = [
+            result
+            for result in candidates
+            if result.score >= minimum_relevance_score
+        ]
+
+        if not retrieved_sections:
+            raise NoRelevantRunbookContextError(
+                "No runbook section met the minimum "
+                "relevance score"
+            )
 
         return {
             "retrieved_sections": retrieved_sections,

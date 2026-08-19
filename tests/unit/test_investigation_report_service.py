@@ -19,10 +19,13 @@ from apps.metadata_service.services.investigation_reports import (
     InvestigationReportAlreadyReviewedError,
     InvestigationReportNotFoundError,
     JobNotFoundError,
+    JobNotPendingError,
     JobNotProcessingError,
     create_investigation_report,
     get_investigation_report,
+    mark_investigation_job_failed,
     review_investigation_report,
+    start_investigation_job,
 )
 
 
@@ -257,6 +260,71 @@ async def test_create_report_requires_processing_job() -> None:
     assert job.status is JobStatus.PENDING
     assert session.added_report is None
     assert session.rolled_back is True
+
+
+@pytest.mark.anyio
+async def test_start_investigation_job() -> None:
+    session = FakeSession()
+    job = make_job(JobStatus.PENDING)
+    job.started_at = None
+    session.job_to_return = job
+
+    result = await start_investigation_job(
+        session=session,
+        job_id=job.id,
+    )
+
+    assert result is job
+    assert job.status is JobStatus.PROCESSING
+    assert job.started_at is not None
+    assert job.completed_at is None
+    assert job.error_message is None
+    assert session.get_calls[0] == (
+        Job,
+        job.id,
+        True,
+    )
+    assert session.committed is True
+
+
+@pytest.mark.anyio
+async def test_start_requires_pending_job() -> None:
+    session = FakeSession()
+    job = make_job(JobStatus.COMPLETED)
+    session.job_to_return = job
+
+    with pytest.raises(JobNotPendingError):
+        await start_investigation_job(
+            session=session,
+            job_id=job.id,
+        )
+
+    assert job.status is JobStatus.COMPLETED
+    assert session.rolled_back is True
+
+
+@pytest.mark.anyio
+async def test_mark_investigation_job_failed() -> None:
+    session = FakeSession()
+    job = make_job(JobStatus.PROCESSING)
+    session.job_to_return = job
+
+    result = await mark_investigation_job_failed(
+        session=session,
+        job_id=job.id,
+        error_message="  Retrieval failed  ",
+    )
+
+    assert result is job
+    assert job.status is JobStatus.FAILED
+    assert job.completed_at is not None
+    assert job.error_message == "Retrieval failed"
+    assert session.get_calls[0] == (
+        Job,
+        job.id,
+        True,
+    )
+    assert session.committed is True
 
 
 @pytest.mark.anyio
