@@ -1,5 +1,8 @@
 import pytest
 
+from apps.metadata_service.schemas.assessment import (
+    IncidentAssessment,
+)
 from apps.metadata_service.schemas.incident import (
     IncidentEvidence,
 )
@@ -40,13 +43,66 @@ class FakeRunbookRetriever:
         return self._results[:limit]
 
 
+class FakeIncidentAnalyst:
+    def __init__(
+        self,
+        assessment: IncidentAssessment,
+    ) -> None:
+        self._assessment = assessment
+        self.calls: list[
+            tuple[str, list[str]]
+        ] = []
+
+    async def analyze(
+        self,
+        incident: IncidentEvidence,
+        retrieved_sections: list[
+            RetrievedRunbookSection
+        ],
+    ) -> IncidentAssessment:
+        self.calls.append(
+            (
+                incident.incident_id,
+                [
+                    result.section.citation_id
+                    for result in retrieved_sections
+                ],
+            )
+        )
+
+        return self._assessment
+
+
+def make_assessment(
+    incident_id: str,
+    citation_id: str,
+) -> IncidentAssessment:
+    return IncidentAssessment(
+        incident_id=incident_id,
+        root_cause=(
+            "Database connections are not being released."
+        ),
+        supporting_evidence=[
+            "Active connections equal the pool maximum.",
+        ],
+        recommended_actions=[
+            "Roll back the recent deployment.",
+        ],
+        verification_steps=[
+            "Verify that connection waiters return to zero.",
+        ],
+        confidence=0.91,
+        citation_ids=[citation_id],
+    )
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
 @pytest.mark.anyio
-async def test_graph_retrieves_runbook_context() -> None:
+async def test_graph_generates_incident_assessment() -> None:
     incident = load_incidents()["INC-DB-001"]
 
     section = next(
@@ -60,12 +116,21 @@ async def test_graph_retrieves_runbook_context() -> None:
         score=0.91,
     )
 
+    assessment = make_assessment(
+        incident_id=incident.incident_id,
+        citation_id=section.citation_id,
+    )
+
     retriever = FakeRunbookRetriever(
         results=[retrieved_section],
+    )
+    analyst = FakeIncidentAnalyst(
+        assessment=assessment,
     )
 
     graph = build_investigation_graph(
         retriever=retriever,
+        analyst=analyst,
         retrieval_limit=2,
     )
 
@@ -79,10 +144,21 @@ async def test_graph_retrieves_runbook_context() -> None:
     assert result["retrieved_sections"] == [
         retrieved_section,
     ]
+    assert result["assessment"] == assessment
+    assert result["assessment_validated"] is True
+
     assert retriever.calls == [
         (
             "INC-DB-001",
             2,
+        )
+    ]
+    assert analyst.calls == [
+        (
+            "INC-DB-001",
+            [
+                "RB-DB-001#diagnosis",
+            ],
         )
     ]
 
@@ -90,11 +166,97 @@ async def test_graph_retrieves_runbook_context() -> None:
 def test_graph_rejects_invalid_retrieval_limit() -> None:
     retriever = FakeRunbookRetriever(results=[])
 
+    analyst = FakeIncidentAnalyst(
+        assessment=make_assessment(
+            incident_id="INC-DB-001",
+            citation_id="RB-DB-001#diagnosis",
+        )
+    )
+
     with pytest.raises(
         ValueError,
         match="Retrieval limit must be at least 1",
     ):
         build_investigation_graph(
             retriever=retriever,
+            analyst=analyst,
             retrieval_limit=0,
+        )
+
+@pytest.mark.anyio
+async def test_graph_rejects_assessment_for_different_incident() -> None:
+    incident = load_incidents()["INC-DB-001"]
+
+    section = next(
+        section
+        for section in load_runbooks()
+        if section.citation_id == "RB-DB-001#diagnosis"
+    )
+
+    retrieved_section = RetrievedRunbookSection(
+        section=section,
+        score=0.91,
+    )
+
+    assessment = make_assessment(
+        incident_id="INC-KAFKA-001",
+        citation_id=section.citation_id,
+    )
+
+    graph = build_investigation_graph(
+        retriever=FakeRunbookRetriever(
+            results=[retrieved_section],
+        ),
+        analyst=FakeIncidentAnalyst(
+            assessment=assessment,
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Assessment incident ID does not match",
+    ):
+        await graph.ainvoke(
+            {
+                "incident": incident,
+            }
+        )
+
+@pytest.mark.anyio
+async def test_graph_rejects_citation_that_was_not_retrieved() -> None:
+    incident = load_incidents()["INC-DB-001"]
+
+    section = next(
+        section
+        for section in load_runbooks()
+        if section.citation_id == "RB-DB-001#diagnosis"
+    )
+
+    retrieved_section = RetrievedRunbookSection(
+        section=section,
+        score=0.91,
+    )
+
+    assessment = make_assessment(
+        incident_id=incident.incident_id,
+        citation_id="RB-KAFKA-001#diagnosis",
+    )
+
+    graph = build_investigation_graph(
+        retriever=FakeRunbookRetriever(
+            results=[retrieved_section],
+        ),
+        analyst=FakeIncidentAnalyst(
+            assessment=assessment,
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="citations that were not retrieved",
+    ):
+        await graph.ainvoke(
+            {
+                "incident": incident,
+            }
         )
