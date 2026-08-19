@@ -17,6 +17,8 @@ from apps.metadata_service.services.retrieval_text import (
     build_runbook_search_text,
 )
 
+from typing import Protocol
+
 
 def cosine_similarity(
     left: list[float],
@@ -53,6 +55,13 @@ def cosine_similarity(
 
     return dot_product / (left_norm * right_norm)
 
+class RunbookRetriever(Protocol):
+    async def retrieve(
+        self,
+        incident: IncidentEvidence,
+        limit: int = 3,
+    ) -> list[RetrievedRunbookSection]:
+        ...
 
 class InMemoryRunbookRetriever:
     def __init__(
