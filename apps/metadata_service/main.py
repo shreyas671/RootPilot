@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.metadata_service.api.jobs import router as jobs_router
 from apps.metadata_service.database import get_db_session
 
+from apps.metadata_service.api.investigation_reports import (
+    router as investigation_reports_router,
+)
+
 
 app = FastAPI(
     title="RootPilot Metadata Service",
@@ -15,6 +19,7 @@ app = FastAPI(
 )
 
 app.include_router(jobs_router)
+app.include_router(investigation_reports_router)
 
 
 @app.get("/health")
