@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     openai_embedding_model: str = (
         "text-embedding-3-small"
     )
+    openai_analysis_model: str = "gpt-5.6-sol"
 
     model_config = SettingsConfigDict(
         env_file=".env",
