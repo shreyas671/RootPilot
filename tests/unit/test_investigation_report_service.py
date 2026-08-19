@@ -7,10 +7,10 @@ from apps.metadata_service.models.investigation_report import (
     InvestigationReport,
     InvestigationReportStatus,
 )
-from apps.metadata_service.models.job import Job, JobStatus
 from apps.metadata_service.models.investigation_review_event import (
     InvestigationReviewEvent,
 )
+from apps.metadata_service.models.job import Job, JobStatus
 from apps.metadata_service.schemas.assessment import (
     IncidentAssessment,
 )
@@ -220,6 +220,13 @@ def make_report(
         ),
         confidence=assessment.confidence,
         citation_ids=assessment.citation_ids,
+        embedding_model="embedding-test",
+        analysis_model="analysis-test",
+        prompt_version="incident-analyst-v1",
+        retrieval_backend="postgres",
+        retrieval_limit=3,
+        minimum_relevance_score=0.2,
+        retrieved_sections=[],
         status=status,
         reviewed_by=None,
         reviewer_feedback=None,

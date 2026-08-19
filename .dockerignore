@@ -1,0 +1,12 @@
+.git
+.github
+.pytest_cache
+.venv
+__pycache__
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.production.example
+dashboard
+tests

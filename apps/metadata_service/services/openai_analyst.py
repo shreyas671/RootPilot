@@ -13,7 +13,6 @@ from apps.metadata_service.services.analysis_text import (
     build_incident_analysis_text,
 )
 
-
 INCIDENT_ANALYST_INSTRUCTIONS = """
 Role:
 You are an incident-response analyst.
@@ -39,6 +38,10 @@ Constraints:
 - If evidence is incomplete or conflicting, state the uncertainty
   and lower confidence.
 """.strip()
+
+INCIDENT_ANALYST_PROMPT_VERSION = (
+    "incident-analyst-v1"
+)
 
 
 class OpenAIIncidentAnalyst:

@@ -1,6 +1,17 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+)
+
+NonEmptyText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+]
 
 
 class EvidenceModel(BaseModel):
@@ -37,3 +48,13 @@ class IncidentEvidence(EvidenceModel):
     metrics: list[IncidentMetric] = Field(min_length=1)
     logs: list[IncidentLog] = Field(min_length=1)
     recent_changes: list[IncidentChange]
+
+
+class IncidentCatalogEntry(EvidenceModel):
+    incident_id: str = Field(
+        pattern=r"^INC-[A-Z]+-\d{3}$",
+    )
+    title: NonEmptyText
+    service: NonEmptyText
+    summary: NonEmptyText
+    input_path: NonEmptyText

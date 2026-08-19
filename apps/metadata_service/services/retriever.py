@@ -1,4 +1,5 @@
 from math import sqrt
+from typing import Protocol
 
 from apps.metadata_service.schemas.incident import (
     IncidentEvidence,
@@ -16,8 +17,6 @@ from apps.metadata_service.services.retrieval_text import (
     build_incident_query,
     build_runbook_search_text,
 )
-
-from typing import Protocol
 
 
 def cosine_similarity(

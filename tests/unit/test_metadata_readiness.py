@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.metadata_service.database import get_db_session
 from apps.metadata_service.main import app
 
-
 client = TestClient(app)
 
 

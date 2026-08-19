@@ -5,7 +5,6 @@ from apps.metadata_service.schemas.evaluation import (
     EvaluationDataset,
 )
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_EVALUATION_DATASET = (
     PROJECT_ROOT

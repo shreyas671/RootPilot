@@ -55,6 +55,7 @@ class KeywordEmbeddingProvider:
         return [
             float(database_score),
             float(kafka_score),
+            1.0,
         ]
 
 
@@ -96,7 +97,7 @@ async def test_retriever_returns_database_sections() -> None:
         result.section.runbook_id == "RB-DB-001"
         for result in results
     )
-    assert embedding_provider.batch_sizes == [10, 1]
+    assert embedding_provider.batch_sizes == [25, 1]
 
 
 @pytest.mark.anyio

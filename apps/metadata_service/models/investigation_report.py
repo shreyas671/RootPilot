@@ -8,6 +8,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Integer,
     String,
     Text,
     Uuid,
@@ -37,6 +38,15 @@ class InvestigationReport(Base):
         CheckConstraint(
             "confidence >= 0.0 AND confidence <= 1.0",
             name="confidence_range",
+        ),
+        CheckConstraint(
+            "minimum_relevance_score >= -1.0 AND "
+            "minimum_relevance_score <= 1.0",
+            name="minimum_relevance_score_range",
+        ),
+        CheckConstraint(
+            "retrieval_limit >= 1",
+            name="retrieval_limit_positive",
         ),
     )
 
@@ -80,6 +90,36 @@ class InvestigationReport(Base):
         nullable=False,
     )
     citation_ids: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+    )
+    embedding_model: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    analysis_model: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    prompt_version: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+    )
+    retrieval_backend: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+    retrieval_limit: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    minimum_relevance_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+    retrieved_sections: Mapped[
+        list[dict[str, object]]
+    ] = mapped_column(
         JSONB,
         nullable=False,
     )

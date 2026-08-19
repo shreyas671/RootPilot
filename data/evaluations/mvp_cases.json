@@ -19,6 +19,27 @@
       ],
       "retrieval_limit": 3,
       "minimum_relevance_score": 0.0
+    },
+    {
+      "case_id": "RET-CACHE-001",
+      "incident_id": "INC-CACHE-001",
+      "expected_citation_ids": ["RB-CACHE-001#diagnosis", "RB-CACHE-001#likely-causes"],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0
+    },
+    {
+      "case_id": "RET-TLS-001",
+      "incident_id": "INC-TLS-001",
+      "expected_citation_ids": ["RB-TLS-001#diagnosis", "RB-TLS-001#likely-causes"],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0
+    },
+    {
+      "case_id": "RET-MEMORY-001",
+      "incident_id": "INC-MEMORY-001",
+      "expected_citation_ids": ["RB-MEMORY-001#diagnosis", "RB-MEMORY-001#likely-causes"],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0
     }
   ],
   "assessment_cases": [
@@ -56,6 +77,36 @@
       "required_action_terms": [
         "event"
       ],
+      "minimum_confidence": 0.5
+    },
+    {
+      "case_id": "RCA-CACHE-001",
+      "incident_id": "INC-CACHE-001",
+      "expected_citation_ids": ["RB-CACHE-001#diagnosis", "RB-CACHE-001#likely-causes"],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0,
+      "required_root_cause_terms": ["cache", "key"],
+      "required_action_terms": ["cache"],
+      "minimum_confidence": 0.5
+    },
+    {
+      "case_id": "RCA-TLS-001",
+      "incident_id": "INC-TLS-001",
+      "expected_citation_ids": ["RB-TLS-001#diagnosis", "RB-TLS-001#likely-causes"],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0,
+      "required_root_cause_terms": ["certificate", "expired"],
+      "required_action_terms": ["certificate"],
+      "minimum_confidence": 0.5
+    },
+    {
+      "case_id": "RCA-MEMORY-001",
+      "incident_id": "INC-MEMORY-001",
+      "expected_citation_ids": ["RB-MEMORY-001#diagnosis", "RB-MEMORY-001#likely-causes"],
+      "retrieval_limit": 3,
+      "minimum_relevance_score": 0.0,
+      "required_root_cause_terms": ["memory", "leak"],
+      "required_action_terms": ["memory"],
       "minimum_confidence": 0.5
     }
   ]

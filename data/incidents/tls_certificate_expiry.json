@@ -1,0 +1,22 @@
+{
+  "incident_id": "INC-TLS-001",
+  "title": "Partner webhook TLS handshakes failing",
+  "service": "webhook-gateway",
+  "started_at": "2026-08-10T00:02:00Z",
+  "summary": "Outbound partner webhooks fail certificate validation immediately after midnight UTC.",
+  "symptoms": [
+    "Webhook delivery success fell below 5 percent",
+    "TLS handshakes fail before HTTP requests are sent",
+    "Internal health checks remain successful"
+  ],
+  "metrics": [
+    {"name": "webhook_delivery_success", "value": 4.2, "unit": "percent"},
+    {"name": "tls_handshake_failures", "value": 1840, "unit": "failures_per_minute"},
+    {"name": "certificate_days_remaining", "value": 0, "unit": "days"}
+  ],
+  "logs": [
+    {"timestamp": "2026-08-10T00:02:03Z", "level": "ERROR", "message": "x509: certificate has expired or is not yet valid"},
+    {"timestamp": "2026-08-10T00:02:07Z", "level": "INFO", "message": "Gateway process health check succeeded"}
+  ],
+  "recent_changes": []
+}

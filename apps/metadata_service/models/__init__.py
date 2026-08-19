@@ -7,7 +7,9 @@ from apps.metadata_service.models.investigation_review_event import (
     InvestigationReviewEvent,
 )
 from apps.metadata_service.models.job import Job, JobStatus
-
+from apps.metadata_service.models.runbook_embedding import (
+    RunbookEmbedding,
+)
 
 __all__ = [
     "Base",
@@ -16,4 +18,5 @@ __all__ = [
     "InvestigationReviewEvent",
     "Job",
     "JobStatus",
+    "RunbookEmbedding",
 ]

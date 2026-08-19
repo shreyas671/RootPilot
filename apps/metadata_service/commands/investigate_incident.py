@@ -2,8 +2,6 @@ import argparse
 import asyncio
 from uuid import UUID
 
-from openai import AsyncOpenAI
-
 from apps.metadata_service.config import get_settings
 from apps.metadata_service.database import get_session_factory
 from apps.metadata_service.models.investigation_report import (
@@ -25,13 +23,17 @@ from apps.metadata_service.services.investigation_graph import (
     build_investigation_graph,
 )
 from apps.metadata_service.services.openai_analyst import (
+    INCIDENT_ANALYST_PROMPT_VERSION,
     OpenAIIncidentAnalyst,
+)
+from apps.metadata_service.services.openai_client import (
+    create_openai_client,
 )
 from apps.metadata_service.services.openai_embedding import (
     OpenAIEmbeddingProvider,
 )
-from apps.metadata_service.services.retriever import (
-    InMemoryRunbookRetriever,
+from apps.metadata_service.services.retriever_factory import (
+    create_runbook_retriever,
 )
 from apps.metadata_service.services.runbook_loader import (
     load_runbooks,
@@ -248,19 +250,17 @@ async def investigate_incident(
 
     incident = incidents[incident_id]
 
-    client = AsyncOpenAI(
-        api_key=(
-            settings.openai_api_key.get_secret_value()
-        )
-    )
+    client = create_openai_client(settings)
 
     try:
         embedding_provider = OpenAIEmbeddingProvider(
             client=client,
             model=settings.openai_embedding_model,
+            dimensions=settings.embedding_dimensions,
         )
 
-        retriever = await InMemoryRunbookRetriever.create(
+        retriever = await create_runbook_retriever(
+            settings=settings,
             embedding_provider=embedding_provider,
             sections=load_runbooks(),
         )
@@ -287,6 +287,22 @@ async def investigate_incident(
                     workflow=graph,
                     session_factory=(
                         get_session_factory()
+                    ),
+                    embedding_model=(
+                        settings.openai_embedding_model
+                    ),
+                    analysis_model=(
+                        settings.openai_analysis_model
+                    ),
+                    prompt_version=(
+                        INCIDENT_ANALYST_PROMPT_VERSION
+                    ),
+                    retrieval_backend=(
+                        settings.retrieval_backend
+                    ),
+                    retrieval_limit=retrieval_limit,
+                    minimum_relevance_score=(
+                        minimum_relevance_score
                     ),
                 )
             )

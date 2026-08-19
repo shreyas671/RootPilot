@@ -27,6 +27,13 @@ def test_investigation_report_table_metadata() -> None:
         "verification_steps",
         "confidence",
         "citation_ids",
+        "embedding_model",
+        "analysis_model",
+        "prompt_version",
+        "retrieval_backend",
+        "retrieval_limit",
+        "minimum_relevance_score",
+        "retrieved_sections",
         "status",
         "reviewed_by",
         "reviewer_feedback",
@@ -67,6 +74,10 @@ def test_investigation_report_table_metadata() -> None:
         table.c.citation_ids.type,
         JSONB,
     )
+    assert isinstance(
+        table.c.retrieved_sections.type,
+        JSONB,
+    )
 
     status_type = table.c.status.type
 
@@ -84,14 +95,14 @@ def test_investigation_report_table_metadata() -> None:
     )
     assert table.c.status.server_default is not None
 
-    confidence_constraints = [
-        constraint
+    constraint_names = {
+        constraint.name
         for constraint in table.constraints
         if isinstance(constraint, CheckConstraint)
-    ]
+    }
 
-    assert len(confidence_constraints) == 1
-    assert (
-        confidence_constraints[0].name
-        == "ck_investigation_reports_confidence_range"
-    )
+    assert constraint_names == {
+        "ck_investigation_reports_confidence_range",
+        "ck_investigation_reports_minimum_relevance_score_range",
+        "ck_investigation_reports_retrieval_limit_positive",
+    }

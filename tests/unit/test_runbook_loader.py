@@ -11,11 +11,14 @@ from apps.metadata_service.services.runbook_loader import (
 def test_load_runbooks_returns_all_sections() -> None:
     sections = load_runbooks()
 
-    assert len(sections) == 10
+    assert len(sections) == 25
 
     assert {section.runbook_id for section in sections} == {
+        "RB-CACHE-001",
         "RB-DB-001",
         "RB-KAFKA-001",
+        "RB-MEMORY-001",
+        "RB-TLS-001",
     }
 
     assert {

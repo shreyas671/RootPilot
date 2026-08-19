@@ -1,5 +1,10 @@
+import argparse
+
 import pytest
 
+from apps.metadata_service.commands.evaluate_pipeline import (
+    unit_interval,
+)
 from apps.metadata_service.schemas.assessment import (
     IncidentAssessment,
 )
@@ -38,11 +43,13 @@ class EvaluationRetriever:
         incident: IncidentEvidence,
         limit: int = 3,
     ) -> list[RetrievedRunbookSection]:
-        runbook_id = (
-            "RB-DB-001"
-            if incident.incident_id == "INC-DB-001"
-            else "RB-KAFKA-001"
-        )
+        runbook_id = {
+            "INC-CACHE-001": "RB-CACHE-001",
+            "INC-DB-001": "RB-DB-001",
+            "INC-KAFKA-001": "RB-KAFKA-001",
+            "INC-MEMORY-001": "RB-MEMORY-001",
+            "INC-TLS-001": "RB-TLS-001",
+        }[incident.incident_id]
         section_order = {
             "diagnosis": 0,
             "likely-causes": 1,
@@ -85,38 +92,41 @@ class EvaluationAnalyst:
             for result in retrieved_sections[:2]
         ]
 
-        if incident.incident_id == "INC-DB-001":
-            return IncidentAssessment(
-                incident_id=incident.incident_id,
-                root_cause=(
-                    "The database connection pool is exhausted."
-                ),
-                supporting_evidence=[
-                    "Active connections equal the pool maximum."
-                ],
-                recommended_actions=[
-                    "Reduce leaked connection usage."
-                ],
-                verification_steps=[
-                    "Verify pool waiters return to zero."
-                ],
-                confidence=0.9,
-                citation_ids=citation_ids,
-            )
+        assessment_text = {
+            "INC-CACHE-001": (
+                "A cache hot key exhausted Redis connections.",
+                "Fix the cache access pattern.",
+            ),
+            "INC-DB-001": (
+                "The database connection pool is exhausted.",
+                "Reduce leaked connection usage.",
+            ),
+            "INC-KAFKA-001": (
+                "An incompatible event schema causes crashes.",
+                "Quarantine the incompatible event.",
+            ),
+            "INC-MEMORY-001": (
+                "A native decoder memory leak causes OOM restarts.",
+                "Fix memory lifecycle and roll back the decoder.",
+            ),
+            "INC-TLS-001": (
+                "The TLS certificate expired.",
+                "Deploy a renewed certificate.",
+            ),
+        }
+        root_cause, action = assessment_text[
+            incident.incident_id
+        ]
 
         return IncidentAssessment(
             incident_id=incident.incident_id,
-            root_cause=(
-                "An incompatible event schema causes crashes."
-            ),
+            root_cause=root_cause,
             supporting_evidence=[
-                "The required order_id field is missing."
+                "Incident evidence matches the runbook signals."
             ],
-            recommended_actions=[
-                "Quarantine the incompatible event."
-            ],
+            recommended_actions=[action],
             verification_steps=[
-                "Verify event processing resumes."
+                "Verify service health returns to normal."
             ],
             confidence=0.9,
             citation_ids=citation_ids,
@@ -147,6 +157,13 @@ class InvalidEvaluationAnalyst:
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+def test_evaluation_threshold_validation() -> None:
+    assert unit_interval("0.95") == 0.95
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        unit_interval("1.1")
 
 
 @pytest.mark.anyio

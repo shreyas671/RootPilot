@@ -2,7 +2,14 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +20,14 @@ from apps.metadata_service.schemas.job import (
     JobResponse,
     JobStatusUpdate,
 )
-
+from apps.metadata_service.security import (
+    Principal,
+    Role,
+    require_roles,
+)
+from apps.metadata_service.services.incident_loader import (
+    load_incident_catalog,
+)
 
 router = APIRouter(
     prefix="/jobs",
@@ -34,6 +48,52 @@ ALLOWED_STATUS_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
 }
 
 
+@router.get(
+    "",
+    response_model=list[JobResponse],
+)
+async def list_jobs(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.VIEWER)),
+    ],
+    job_status: Annotated[
+        JobStatus | None,
+        Query(alias="status"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[JobResponse]:
+    statement = select(Job)
+
+    if job_status is not None:
+        statement = statement.where(
+            Job.status == job_status
+        )
+
+    statement = statement.order_by(
+        Job.created_at.desc(),
+        Job.id,
+    ).limit(limit).offset(offset)
+
+    try:
+        result = await session.execute(statement)
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail="Unable to list jobs",
+        ) from exc
+
+    return [
+        JobResponse.model_validate(job)
+        for job in result.scalars().all()
+    ]
+
+
 @router.post(
     "",
     response_model=JobResponse,
@@ -42,8 +102,28 @@ ALLOWED_STATUS_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
 async def create_job(
     request: JobCreate,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.OPERATOR)),
+    ],
 ) -> JobResponse:
-    job = Job(input_path=request.input_path)
+    catalog = {
+        item.incident_id: item
+        for item in load_incident_catalog()
+    }
+    incident = catalog.get(request.incident_id)
+
+    if incident is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Unknown incident ID",
+        )
+
+    job = Job(
+        input_path=incident.input_path,
+        incident_id=request.incident_id,
+        max_attempts=request.max_attempts,
+    )
 
     try:
         session.add(job)
@@ -71,6 +151,10 @@ async def create_job(
 async def get_job(
     job_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.VIEWER)),
+    ],
 ) -> JobResponse:
     try:
         job = await session.get(Job, job_id)
@@ -99,6 +183,10 @@ async def update_job_status(
     job_id: UUID,
     request: JobStatusUpdate,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.OPERATOR)),
+    ],
 ) -> JobResponse:
     try:
         job = await session.get(
@@ -148,10 +236,14 @@ async def update_job_status(
     elif request.status is JobStatus.COMPLETED:
         job.completed_at = now
         job.error_message = None
+        job.claimed_by = None
+        job.lease_expires_at = None
 
     elif request.status is JobStatus.FAILED:
         job.completed_at = now
         job.error_message = request.error_message
+        job.claimed_by = None
+        job.lease_expires_at = None
 
     try:
         await session.flush()

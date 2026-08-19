@@ -1,0 +1,25 @@
+{
+  "incident_id": "INC-CACHE-001",
+  "title": "Catalog API latency during cache saturation",
+  "service": "catalog-api",
+  "started_at": "2026-08-02T10:15:00Z",
+  "summary": "A single Redis key is receiving disproportionate traffic and exhausting cache connections.",
+  "symptoms": [
+    "Catalog p99 latency increased above 4 seconds",
+    "Redis command timeouts increased sharply",
+    "Most slow requests access the same product collection"
+  ],
+  "metrics": [
+    {"name": "catalog_p99_latency", "value": 4.8, "unit": "seconds"},
+    {"name": "redis_connected_clients", "value": 500, "unit": "connections"},
+    {"name": "redis_maxclients", "value": 500, "unit": "connections"},
+    {"name": "hot_key_request_share", "value": 72, "unit": "percent"}
+  ],
+  "logs": [
+    {"timestamp": "2026-08-02T10:15:12Z", "level": "ERROR", "message": "RedisTimeoutError while reading catalog:featured"},
+    {"timestamp": "2026-08-02T10:15:18Z", "level": "WARN", "message": "Cache connection pool exhausted active=500 idle=0"}
+  ],
+  "recent_changes": [
+    {"timestamp": "2026-08-02T09:55:00Z", "description": "Homepage release began requesting the featured catalog key on every component render"}
+  ]
+}

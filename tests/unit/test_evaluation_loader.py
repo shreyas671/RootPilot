@@ -16,6 +16,9 @@ def test_load_default_evaluation_dataset() -> None:
     ] == [
         "RET-DB-001",
         "RET-KAFKA-001",
+        "RET-CACHE-001",
+        "RET-TLS-001",
+        "RET-MEMORY-001",
     ]
     assert [
         case.case_id
@@ -23,6 +26,9 @@ def test_load_default_evaluation_dataset() -> None:
     ] == [
         "RCA-DB-001",
         "RCA-KAFKA-001",
+        "RCA-CACHE-001",
+        "RCA-TLS-001",
+        "RCA-MEMORY-001",
     ]
 
 

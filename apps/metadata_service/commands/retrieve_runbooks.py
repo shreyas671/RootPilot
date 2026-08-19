@@ -1,17 +1,18 @@
 import argparse
 import asyncio
 
-from openai import AsyncOpenAI
-
 from apps.metadata_service.config import get_settings
 from apps.metadata_service.services.incident_loader import (
     load_incidents,
 )
+from apps.metadata_service.services.openai_client import (
+    create_openai_client,
+)
 from apps.metadata_service.services.openai_embedding import (
     OpenAIEmbeddingProvider,
 )
-from apps.metadata_service.services.retriever import (
-    InMemoryRunbookRetriever,
+from apps.metadata_service.services.retriever_factory import (
+    create_runbook_retriever,
 )
 from apps.metadata_service.services.runbook_loader import (
     load_runbooks,
@@ -57,29 +58,34 @@ async def retrieve_runbooks(
             f"Available incidents: {available_incidents}"
         )
 
-    embedding_provider = OpenAIEmbeddingProvider(
-        client=AsyncOpenAI(
-            api_key=(
-                settings.openai_api_key.get_secret_value()
-            )
-        ),
-        model=settings.openai_embedding_model,
-    )
+    client = create_openai_client(settings)
 
-    retriever = await InMemoryRunbookRetriever.create(
-        embedding_provider=embedding_provider,
-        sections=load_runbooks(),
-    )
-
-    results = await retriever.retrieve(
-        incident=incidents[incident_id],
-        limit=limit,
-    )
+    try:
+        embedding_provider = OpenAIEmbeddingProvider(
+            client=client,
+            model=settings.openai_embedding_model,
+            dimensions=settings.embedding_dimensions,
+        )
+        retriever = await create_runbook_retriever(
+            settings=settings,
+            embedding_provider=embedding_provider,
+            sections=load_runbooks(),
+        )
+        results = await retriever.retrieve(
+            incident=incidents[incident_id],
+            limit=limit,
+        )
+    finally:
+        await client.close()
 
     print(f"Incident: {incident_id}")
     print(
         f"Embedding model: "
         f"{settings.openai_embedding_model}"
+    )
+    print(
+        f"Retrieval backend: "
+        f"{settings.retrieval_backend}"
     )
     print("Retrieved sections:")
 

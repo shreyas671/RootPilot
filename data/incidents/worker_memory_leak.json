@@ -1,0 +1,25 @@
+{
+  "incident_id": "INC-MEMORY-001",
+  "title": "Image workers repeatedly OOM killed",
+  "service": "image-worker",
+  "started_at": "2026-08-15T16:40:00Z",
+  "summary": "Worker memory grows continuously after a new image decoder release until Kubernetes terminates each pod.",
+  "symptoms": [
+    "Image processing backlog is increasing",
+    "Worker pods restart every 20 minutes",
+    "Resident memory does not return after jobs complete"
+  ],
+  "metrics": [
+    {"name": "container_memory_working_set", "value": 2048, "unit": "MiB"},
+    {"name": "container_memory_limit", "value": 2048, "unit": "MiB"},
+    {"name": "pod_restart_count", "value": 38, "unit": "restarts"},
+    {"name": "image_queue_depth", "value": 12600, "unit": "jobs"}
+  ],
+  "logs": [
+    {"timestamp": "2026-08-15T16:40:31Z", "level": "WARN", "message": "Memory usage remains elevated after decoder task completion"},
+    {"timestamp": "2026-08-15T16:41:02Z", "level": "ERROR", "message": "Container terminated with reason OOMKilled exit_code=137"}
+  ],
+  "recent_changes": [
+    {"timestamp": "2026-08-15T15:50:00Z", "description": "Deployed image-worker v3.8.0 with a native image decoder upgrade"}
+  ]
+}

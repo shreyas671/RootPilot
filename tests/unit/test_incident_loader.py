@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from apps.metadata_service.services.incident_loader import (
     load_incident,
+    load_incident_catalog,
     load_incidents,
 )
 
@@ -13,12 +14,25 @@ def test_load_incidents_returns_all_fixtures() -> None:
     incidents = load_incidents()
 
     assert set(incidents) == {
+        "INC-CACHE-001",
         "INC-DB-001",
         "INC-KAFKA-001",
+        "INC-MEMORY-001",
+        "INC-TLS-001",
     }
 
     assert incidents["INC-DB-001"].service == "checkout-api"
     assert incidents["INC-KAFKA-001"].service == "order-worker"
+
+
+def test_load_incident_catalog_exposes_queue_inputs() -> None:
+    catalog = load_incident_catalog()
+
+    assert len(catalog) == 5
+    assert catalog[0].incident_id == "INC-CACHE-001"
+    assert catalog[0].input_path == (
+        "data/incidents/cache_hot_key.json"
+    )
 
 
 def test_load_incident_parses_nested_evidence() -> None:

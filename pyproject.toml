@@ -10,7 +10,10 @@ dependencies = [
     "fastapi>=0.141.1",
     "langgraph>=1.2.11",
     "openai>=2.53.0",
+    "pgvector>=0.4.1",
+    "prometheus-client>=0.23.1",
     "pydantic-settings>=2.14.2",
+    "pyjwt[crypto]>=2.10.1",
     "sqlalchemy[asyncio]>=2.0.51",
     "uvicorn[standard]>=0.52.0",
 ]
@@ -19,6 +22,7 @@ dependencies = [
 dev = [
     "httpx2>=2.9.1",
     "pytest>=9.1.1",
+    "ruff>=0.16.3",
 ]
 
 [tool.pytest.ini_options]

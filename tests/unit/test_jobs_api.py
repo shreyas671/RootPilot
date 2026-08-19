@@ -14,6 +14,7 @@ class FakeSession:
     def __init__(self) -> None:
         self.added_job: Job | None = None
         self.job_to_return: Job | None = None
+        self.jobs: list[Job] = []
         self.committed = False
         self.rolled_back = False
         self.used_row_lock = False
@@ -46,6 +47,11 @@ class FakeSession:
         if self.added_job is not None:
             self.added_job.id = uuid4()
             self.added_job.status = JobStatus.PENDING
+            self.added_job.attempt_count = 0
+            self.added_job.max_attempts = (
+                self.added_job.max_attempts or 3
+            )
+            self.added_job.scheduled_at = now
             self.added_job.created_at = now
             self.added_job.updated_at = now
 
@@ -57,6 +63,19 @@ class FakeSession:
             job is self.added_job
             or job is self.job_to_return
         )
+
+    async def execute(self, statement: object) -> object:
+        class FakeScalarResult:
+            def __init__(self, jobs: list[Job]) -> None:
+                self.jobs = jobs
+
+            def scalars(self) -> "FakeScalarResult":
+                return self
+
+            def all(self) -> list[Job]:
+                return self.jobs
+
+        return FakeScalarResult(self.jobs)
 
     async def commit(self) -> None:
         self.committed = True
@@ -92,8 +111,14 @@ def make_job(
     return Job(
         id=uuid4(),
         input_path="/videos/demo.mp4",
+        incident_id="INC-DB-001",
         status=job_status,
         error_message=None,
+        attempt_count=0,
+        max_attempts=3,
+        claimed_by=None,
+        lease_expires_at=None,
+        scheduled_at=now,
         started_at=started_at,
         completed_at=None,
         created_at=now,
@@ -107,14 +132,17 @@ def test_create_job_returns_201(
 
     response = client.post(
         "/jobs",
-        json={"input_path": "  /videos/demo.mp4  "},
+        json={"incident_id": "INC-DB-001"},
     )
 
     assert response.status_code == 201
 
     body = response.json()
 
-    assert body["input_path"] == "/videos/demo.mp4"
+    assert body["input_path"] == (
+        "data/incidents/database_pool_exhaustion.json"
+    )
+    assert body["incident_id"] == "INC-DB-001"
     assert body["status"] == "pending"
     assert body["error_message"] is None
     assert body["started_at"] is None
@@ -127,19 +155,36 @@ def test_create_job_returns_201(
     assert fake_session.committed is True
 
 
-def test_create_job_rejects_invalid_input_path(
+def test_create_job_rejects_missing_incident_id(
     client_and_session: tuple[TestClient, FakeSession],
 ) -> None:
     client, fake_session = client_and_session
 
     response = client.post(
         "/jobs",
-        json={"input_path": "   "},
+        json={},
     )
 
     assert response.status_code == 422
     assert fake_session.added_job is None
     assert fake_session.committed is False
+
+
+def test_create_job_rejects_unknown_incident(
+    client_and_session: tuple[TestClient, FakeSession],
+) -> None:
+    client, fake_session = client_and_session
+
+    response = client.post(
+        "/jobs",
+        json={"incident_id": "INC-UNKNOWN-999"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Unknown incident ID"
+    }
+    assert fake_session.added_job is None
 
 
 def test_get_job_returns_existing_job(
@@ -153,8 +198,14 @@ def test_get_job_returns_existing_job(
     fake_session.job_to_return = Job(
         id=job_id,
         input_path="/videos/demo.mp4",
+        incident_id="INC-DB-001",
         status=JobStatus.PENDING,
         error_message=None,
+        attempt_count=0,
+        max_attempts=3,
+        claimed_by=None,
+        lease_expires_at=None,
+        scheduled_at=now,
         started_at=None,
         completed_at=None,
         created_at=now,
@@ -173,6 +224,19 @@ def test_get_job_returns_existing_job(
     assert body["error_message"] is None
     assert body["started_at"] is None
     assert body["completed_at"] is None
+
+
+def test_list_jobs_returns_queue_records(
+    client_and_session: tuple[TestClient, FakeSession],
+) -> None:
+    client, fake_session = client_and_session
+    fake_session.jobs = [make_job(JobStatus.PENDING)]
+
+    response = client.get("/jobs?status=pending&limit=10")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["status"] == "pending"
 
 
 def test_get_job_returns_404_when_job_does_not_exist(

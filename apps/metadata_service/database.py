@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from apps.metadata_service.config import get_settings
+
 
 @lru_cache
 def get_database_url() -> URL:
@@ -26,11 +28,37 @@ def get_database_url() -> URL:
 
 @lru_cache
 def get_engine() -> AsyncEngine:
-    return create_async_engine(
+    settings = get_settings()
+
+    engine_options: dict[str, object] = {
+        "pool_pre_ping": True,
+        "connect_args": {"timeout": 5},
+    }
+
+    if settings.environment == "test":
+        engine_options["poolclass"] = NullPool
+    else:
+        engine_options.update(
+            {
+                "pool_size": settings.database_pool_size,
+                "max_overflow": (
+                    settings.database_max_overflow
+                ),
+                "pool_timeout": (
+                    settings.database_pool_timeout_seconds
+                ),
+                "pool_recycle": (
+                    settings.database_pool_recycle_seconds
+                ),
+            }
+        )
+
+    engine = create_async_engine(
         get_database_url(),
-        pool_pre_ping=True,
-        connect_args={"timeout": 5},
+        **engine_options,
     )
+
+    return engine
 
 
 @lru_cache

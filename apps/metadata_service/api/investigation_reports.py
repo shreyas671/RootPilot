@@ -5,16 +5,28 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     status,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.metadata_service.config import get_settings
 from apps.metadata_service.database import get_db_session
+from apps.metadata_service.models.investigation_report import (
+    InvestigationReport,
+    InvestigationReportStatus,
+)
 from apps.metadata_service.schemas.investigation_report import (
     InvestigationReportResponse,
     InvestigationReportReview,
     InvestigationReviewEventResponse,
+)
+from apps.metadata_service.security import (
+    Principal,
+    Role,
+    require_roles,
 )
 from apps.metadata_service.services.investigation_reports import (
     InvestigationReportAlreadyReviewedError,
@@ -24,11 +36,62 @@ from apps.metadata_service.services.investigation_reports import (
     review_investigation_report,
 )
 
-
 router = APIRouter(
     prefix="/investigation-reports",
     tags=["investigation-reports"],
 )
+
+
+@router.get(
+    "",
+    response_model=list[InvestigationReportResponse],
+)
+async def list_reports(
+    session: Annotated[
+        AsyncSession,
+        Depends(get_db_session),
+    ],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.VIEWER)),
+    ],
+    report_status: Annotated[
+        InvestigationReportStatus | None,
+        Query(alias="status"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[InvestigationReportResponse]:
+    statement = select(InvestigationReport)
+
+    if report_status is not None:
+        statement = statement.where(
+            InvestigationReport.status
+            == report_status
+        )
+
+    statement = statement.order_by(
+        InvestigationReport.created_at.desc(),
+        InvestigationReport.id,
+    ).limit(limit).offset(offset)
+
+    try:
+        result = await session.execute(statement)
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail="Unable to list investigation reports",
+        ) from exc
+
+    return [
+        InvestigationReportResponse.model_validate(
+            report
+        )
+        for report in result.scalars().all()
+    ]
 
 
 @router.get(
@@ -40,6 +103,10 @@ async def get_report(
     session: Annotated[
         AsyncSession,
         Depends(get_db_session),
+    ],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.VIEWER)),
     ],
 ) -> InvestigationReportResponse:
     try:
@@ -74,6 +141,10 @@ async def get_review_events(
     session: Annotated[
         AsyncSession,
         Depends(get_db_session),
+    ],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.VIEWER)),
     ],
 ) -> list[InvestigationReviewEventResponse]:
     try:
@@ -113,7 +184,20 @@ async def review_report(
         AsyncSession,
         Depends(get_db_session),
     ],
+    principal: Annotated[
+        Principal,
+        Depends(require_roles(Role.OPERATOR)),
+    ],
 ) -> InvestigationReportResponse:
+    settings = get_settings()
+
+    if settings.auth_enabled:
+        request = request.model_copy(
+            update={
+                "reviewed_by": principal.subject,
+            }
+        )
+
     try:
         report = await review_investigation_report(
             session,

@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from pydantic import SecretStr
 
 import apps.metadata_service.commands.investigate_incident as command_module
 from apps.metadata_service.commands.investigate_incident import (
@@ -126,6 +125,13 @@ def test_format_persisted_investigation_result() -> None:
         citation_ids=[
             "RB-DB-001#diagnosis",
         ],
+        embedding_model="embedding-test",
+        analysis_model="analysis-test",
+        prompt_version="incident-analyst-v1",
+        retrieval_backend="memory",
+        retrieval_limit=3,
+        minimum_relevance_score=0.0,
+        retrieved_sections=[],
         status=(
             InvestigationReportStatus.PENDING_REVIEW
         ),
@@ -195,16 +201,8 @@ async def test_persisted_command_executes_workflow(
         async def close(self) -> None:
             self.closed = True
 
-    class FakeRetriever:
-        @classmethod
-        async def create(
-            cls,
-            embedding_provider: object,
-            sections: list[object],
-        ) -> object:
-            return object()
-
     client = FakeClient()
+    retriever = object()
 
     def fake_build_graph(
         retriever: object,
@@ -223,11 +221,13 @@ async def test_persisted_command_executes_workflow(
         incident: object,
         workflow: object,
         session_factory: object,
+        **provenance: object,
     ) -> InvestigationReport:
         captured["job_id"] = job_id
         captured["incident"] = incident
         captured["workflow"] = workflow
         captured["session_factory"] = session_factory
+        captured["provenance"] = provenance
 
         return InvestigationReport(
             id=report_id,
@@ -239,6 +239,13 @@ async def test_persisted_command_executes_workflow(
             verification_steps=["Check pool usage."],
             confidence=0.92,
             citation_ids=["RB-DB-001#diagnosis"],
+            embedding_model="embedding-test",
+            analysis_model="analysis-test",
+            prompt_version="incident-analyst-v1",
+            retrieval_backend="memory",
+            retrieval_limit=4,
+            minimum_relevance_score=0.25,
+            retrieved_sections=[],
             status=(
                 InvestigationReportStatus.PENDING_REVIEW
             ),
@@ -251,30 +258,31 @@ async def test_persisted_command_executes_workflow(
         command_module,
         "get_settings",
         lambda: SimpleNamespace(
-            openai_api_key=SecretStr("test-key"),
             openai_embedding_model="embedding-test",
             openai_analysis_model="analysis-test",
+            embedding_dimensions=1536,
+            retrieval_backend="memory",
         ),
     )
     monkeypatch.setattr(
         command_module,
-        "AsyncOpenAI",
-        lambda api_key: client,
+        "create_openai_client",
+        lambda settings: client,
     )
     monkeypatch.setattr(
         command_module,
         "OpenAIEmbeddingProvider",
-        lambda client, model: object(),
+        lambda client, model, dimensions: object(),
     )
     monkeypatch.setattr(
         command_module,
-        "InMemoryRunbookRetriever",
-        FakeRetriever,
+        "create_runbook_retriever",
+        lambda **kwargs: _async_value(retriever),
     )
     monkeypatch.setattr(
         command_module,
         "load_runbooks",
-        lambda: [],
+        list,
     )
     monkeypatch.setattr(
         command_module,
@@ -309,9 +317,21 @@ async def test_persisted_command_executes_workflow(
     assert captured["session_factory"] is session_factory
     assert captured["retrieval_limit"] == 4
     assert captured["minimum_score"] == 0.25
+    assert captured["provenance"] == {
+        "embedding_model": "embedding-test",
+        "analysis_model": "analysis-test",
+        "prompt_version": "incident-analyst-v1",
+        "retrieval_backend": "memory",
+        "retrieval_limit": 4,
+        "minimum_relevance_score": 0.25,
+    }
     assert client.closed is True
 
     output = capsys.readouterr().out
 
     assert f"Report ID: {report_id}" in output
     assert "Review status: pending_review" in output
+
+
+async def _async_value(value: object) -> object:
+    return value

@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     StringConstraints,
     model_validator,
 )
@@ -17,7 +18,6 @@ from apps.metadata_service.schemas.assessment import (
     IncidentAssessment,
     NonEmptyText,
 )
-
 
 ReviewerName = Annotated[
     str,
@@ -38,11 +38,43 @@ ReviewerFeedback = Annotated[
 ]
 
 
+class RetrievedSectionTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    citation_id: CitationId
+    score: float = Field(ge=-1.0, le=1.0)
+    content_hash: str = Field(
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    source_file: NonEmptyText
+
+
+class InvestigationProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    embedding_model: NonEmptyText = "unknown"
+    analysis_model: NonEmptyText = "unknown"
+    prompt_version: NonEmptyText = "unknown"
+    retrieval_backend: NonEmptyText = "memory"
+    retrieval_limit: int = Field(default=3, ge=1)
+    minimum_relevance_score: float = Field(
+        default=0.0,
+        ge=-1.0,
+        le=1.0,
+    )
+    retrieved_sections: list[
+        RetrievedSectionTrace
+    ] = Field(default_factory=list)
+
+
 class InvestigationReportCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     job_id: UUID
     assessment: IncidentAssessment
+    provenance: InvestigationProvenance = Field(
+        default_factory=InvestigationProvenance,
+    )
 
 
 class InvestigationReportReview(BaseModel):
@@ -90,6 +122,13 @@ class InvestigationReportResponse(BaseModel):
     verification_steps: list[NonEmptyText]
     confidence: float
     citation_ids: list[CitationId]
+    embedding_model: str
+    analysis_model: str
+    prompt_version: str
+    retrieval_backend: str
+    retrieval_limit: int
+    minimum_relevance_score: float
+    retrieved_sections: list[RetrievedSectionTrace]
     status: InvestigationReportStatus
     reviewed_by: str | None
     reviewer_feedback: str | None

@@ -9,10 +9,10 @@ from apps.metadata_service.models.investigation_report import (
     InvestigationReport,
     InvestigationReportStatus,
 )
-from apps.metadata_service.models.job import Job, JobStatus
 from apps.metadata_service.models.investigation_review_event import (
     InvestigationReviewEvent,
 )
+from apps.metadata_service.models.job import Job, JobStatus
 from apps.metadata_service.schemas.investigation_report import (
     InvestigationReportCreate,
     InvestigationReportReview,
@@ -74,6 +74,8 @@ async def start_investigation_job(
     job.started_at = datetime.now(UTC)
     job.completed_at = None
     job.error_message = None
+    job.claimed_by = job.claimed_by or "direct-execution"
+    job.lease_expires_at = None
 
     try:
         await session.flush()
@@ -123,6 +125,8 @@ async def mark_investigation_job_failed(
     job.status = JobStatus.FAILED
     job.completed_at = datetime.now(UTC)
     job.error_message = normalized_error[:4000]
+    job.claimed_by = None
+    job.lease_expires_at = None
 
     try:
         await session.flush()
@@ -164,6 +168,7 @@ async def create_investigation_report(
         )
 
     assessment = request.assessment
+    provenance = request.provenance
     now = datetime.now(UTC)
 
     report = InvestigationReport(
@@ -181,6 +186,18 @@ async def create_investigation_report(
         ),
         confidence=assessment.confidence,
         citation_ids=assessment.citation_ids,
+        embedding_model=provenance.embedding_model,
+        analysis_model=provenance.analysis_model,
+        prompt_version=provenance.prompt_version,
+        retrieval_backend=provenance.retrieval_backend,
+        retrieval_limit=provenance.retrieval_limit,
+        minimum_relevance_score=(
+            provenance.minimum_relevance_score
+        ),
+        retrieved_sections=[
+            trace.model_dump()
+            for trace in provenance.retrieved_sections
+        ],
         status=(
             InvestigationReportStatus.PENDING_REVIEW
         ),
@@ -192,6 +209,8 @@ async def create_investigation_report(
     job.status = JobStatus.COMPLETED
     job.completed_at = now
     job.error_message = None
+    job.claimed_by = None
+    job.lease_expires_at = None
 
     try:
         session.add(report)

@@ -13,29 +13,34 @@ from apps.metadata_service.schemas.job import (
 )
 
 
-def test_job_create_accepts_valid_input_path() -> None:
-    request = JobCreate(input_path="/videos/demo.mp4")
+def test_job_create_accepts_valid_incident_id() -> None:
+    request = JobCreate(incident_id="INC-DB-001")
 
-    assert request.input_path == "/videos/demo.mp4"
+    assert request.incident_id == "INC-DB-001"
 
 
-def test_job_create_removes_surrounding_whitespace() -> None:
-    request = JobCreate(input_path="  /videos/demo.mp4  ")
+def test_job_create_accepts_attempt_limit() -> None:
+    request = JobCreate(
+        incident_id="INC-DB-001",
+        max_attempts=5,
+    )
 
-    assert request.input_path == "/videos/demo.mp4"
+    assert request.max_attempts == 5
 
 
 @pytest.mark.parametrize(
-    "input_path",
+    "incident_id",
     [
-        "",
-        "   ",
-        "x" * 1025,
+        "DB-001",
+        "INC-db-001",
+        "INC-DB-1",
     ],
 )
-def test_job_create_rejects_invalid_input_path(input_path: str) -> None:
+def test_job_create_rejects_invalid_incident_id(
+    incident_id: str,
+) -> None:
     with pytest.raises(ValidationError):
-        JobCreate(input_path=input_path)
+        JobCreate(incident_id=incident_id)
 
 
 def test_job_response_reads_job_attributes() -> None:

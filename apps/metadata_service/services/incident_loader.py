@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
 
-from apps.metadata_service.schemas.incident import IncidentEvidence
-
+from apps.metadata_service.schemas.incident import (
+    IncidentCatalogEntry,
+    IncidentEvidence,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_INCIDENT_DIRECTORY = PROJECT_ROOT / "data" / "incidents"
@@ -47,3 +49,29 @@ def load_incidents(
         incidents[incident.incident_id] = incident
 
     return incidents
+
+
+def load_incident_catalog(
+    directory: Path = DEFAULT_INCIDENT_DIRECTORY,
+) -> list[IncidentCatalogEntry]:
+    directory = Path(directory)
+    incidents = load_incidents(directory)
+    paths_by_id = {
+        load_incident(path).incident_id: path
+        for path in sorted(directory.glob("*.json"))
+    }
+
+    return [
+        IncidentCatalogEntry(
+            incident_id=incident.incident_id,
+            title=incident.title,
+            service=incident.service,
+            summary=incident.summary,
+            input_path=str(
+                paths_by_id[incident.incident_id].relative_to(
+                    PROJECT_ROOT
+                )
+            ),
+        )
+        for incident in incidents.values()
+    ]

@@ -3,7 +3,6 @@ from pathlib import Path
 
 from apps.metadata_service.schemas.runbook import RunbookSection
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RUNBOOK_DIRECTORY = PROJECT_ROOT / "data" / "runbooks"
 

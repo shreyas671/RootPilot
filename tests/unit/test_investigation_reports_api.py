@@ -29,6 +29,7 @@ class FakeSession:
         self.review_events: list[
             InvestigationReviewEvent
         ] = []
+        self.reports: list[InvestigationReport] = []
         self.committed = False
         self.rolled_back = False
         self.used_row_lock = False
@@ -84,19 +85,26 @@ class FakeSession:
         class FakeScalarResult:
             def __init__(
                 self,
-                events: list[InvestigationReviewEvent],
+                records: list[object],
             ) -> None:
-                self.events = events
+                self.records = records
 
             def scalars(self) -> "FakeScalarResult":
                 return self
 
             def all(
                 self,
-            ) -> list[InvestigationReviewEvent]:
-                return self.events
+            ) -> list[object]:
+                return self.records
 
-        return FakeScalarResult(self.review_events)
+        records: list[object]
+
+        if "investigation_review_events" in str(statement):
+            records = list(self.review_events)
+        else:
+            records = list(self.reports)
+
+        return FakeScalarResult(records)
 
     async def refresh(
         self,
@@ -161,6 +169,13 @@ def make_report(
         citation_ids=[
             "RB-DB-001#connection-exhaustion",
         ],
+        embedding_model="embedding-test",
+        analysis_model="analysis-test",
+        prompt_version="incident-analyst-v1",
+        retrieval_backend="postgres",
+        retrieval_limit=3,
+        minimum_relevance_score=0.2,
+        retrieved_sections=[],
         status=report_status,
         reviewed_by=None,
         reviewer_feedback=None,
@@ -195,6 +210,28 @@ def test_get_report_returns_existing_report(
     assert body["incident_id"] == "INC-DB-001"
     assert body["status"] == "pending_review"
     assert body["reviewed_by"] is None
+
+
+def test_list_reports_returns_review_records(
+    client_and_session: tuple[
+        TestClient,
+        FakeSession,
+    ],
+) -> None:
+    client, session = client_and_session
+    session.reports = [
+        make_report(
+            InvestigationReportStatus.PENDING_REVIEW
+        )
+    ]
+
+    response = client.get(
+        "/investigation-reports?status=pending_review&limit=10"
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["status"] == "pending_review"
 
 
 def test_get_report_returns_404_when_missing(

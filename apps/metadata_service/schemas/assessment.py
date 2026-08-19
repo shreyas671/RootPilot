@@ -8,7 +8,6 @@ from pydantic import (
     field_validator,
 )
 
-
 NonEmptyText = Annotated[
     str,
     StringConstraints(

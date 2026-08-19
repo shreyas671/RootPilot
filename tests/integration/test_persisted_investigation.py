@@ -35,7 +35,6 @@ from apps.metadata_service.services.investigation_reports import (
     review_investigation_report,
 )
 
-
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(

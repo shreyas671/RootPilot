@@ -5,21 +5,12 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     StringConstraints,
     model_validator,
 )
 
 from apps.metadata_service.models.job import JobStatus
-
-
-InputPath = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-        max_length=1024,
-    ),
-]
 
 ErrorMessage = Annotated[
     str,
@@ -32,7 +23,16 @@ ErrorMessage = Annotated[
 
 
 class JobCreate(BaseModel):
-    input_path: InputPath
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: str = Field(
+        pattern=r"^INC-[A-Z]+-\d{3}$",
+    )
+    max_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+    )
 
 
 class JobStatusUpdate(BaseModel):
@@ -62,8 +62,14 @@ class JobResponse(BaseModel):
 
     id: UUID
     input_path: str
+    incident_id: str | None = None
     status: JobStatus
     error_message: str | None
+    attempt_count: int = 0
+    max_attempts: int = 3
+    claimed_by: str | None = None
+    lease_expires_at: datetime | None = None
+    scheduled_at: datetime | None = None
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime

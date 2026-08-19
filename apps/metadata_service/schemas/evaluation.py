@@ -13,7 +13,6 @@ from apps.metadata_service.schemas.assessment import (
     CitationId,
 )
 
-
 EvaluationCaseId = Annotated[
     str,
     StringConstraints(

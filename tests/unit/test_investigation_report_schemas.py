@@ -129,6 +129,13 @@ def test_report_response_reads_model_attributes() -> None:
         ),
         confidence=assessment.confidence,
         citation_ids=assessment.citation_ids,
+        embedding_model="embedding-test",
+        analysis_model="analysis-test",
+        prompt_version="incident-analyst-v1",
+        retrieval_backend="postgres",
+        retrieval_limit=3,
+        minimum_relevance_score=0.2,
+        retrieved_sections=[],
         status=(
             InvestigationReportStatus.PENDING_REVIEW
         ),

@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rootpilot-worker
+  namespace: rootpilot
+  labels:
+    app.kubernetes.io/name: rootpilot
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rootpilot
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rootpilot
+        app.kubernetes.io/component: worker
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/OWNER/rootpilot:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - apps.metadata_service.commands.run_worker
+          envFrom:
+            - configMapRef:
+                name: rootpilot-config
+            - secretRef:
+                name: rootpilot-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      terminationGracePeriodSeconds: 60

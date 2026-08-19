@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from types import TracebackType
+from typing import Self
 from uuid import UUID, uuid4
 
 import pytest
@@ -63,7 +64,7 @@ class FakeSession:
         self.committed = False
         self.rolled_back = False
 
-    async def __aenter__(self) -> "FakeSession":
+    async def __aenter__(self) -> Self:
         self.events.append("session_enter")
         return self
 
