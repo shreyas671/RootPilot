@@ -60,7 +60,7 @@ jobs:
         run: uv run alembic check
 
       - name: Lint Python
-        run: uv run ruff check apps tests
+        run: uv run ruff check .
 
       - name: Run test suite
         run: uv run pytest

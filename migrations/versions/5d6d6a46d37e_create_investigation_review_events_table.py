@@ -5,18 +5,17 @@ Revises: b325bed5f121
 Create Date: 2026-08-19 16:20:24.703132
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 # revision identifiers, used by Alembic.
 revision: str = '5d6d6a46d37e'
-down_revision: Union[str, Sequence[str], None] = 'b325bed5f121'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = 'b325bed5f121'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 investigation_report_status = postgresql.ENUM(

@@ -5,19 +5,18 @@ Revises: 5d6d6a46d37e
 Create Date: 2026-08-19 17:10:00.000000
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
 from pgvector.sqlalchemy import Vector
-import sqlalchemy as sa
-
 
 revision: str = "9f82c4a17d90"
-down_revision: Union[str, Sequence[str], None] = (
+down_revision: str | Sequence[str] | None = (
     "5d6d6a46d37e"
 )
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
