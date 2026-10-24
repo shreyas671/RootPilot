@@ -8,9 +8,29 @@ wheels/
 *.egg-info
 output/
 tmp/
+
+# Local configuration and secrets
 .env
+.env.*
+!.env.production.example
+!dashboard/.env.example
 
 # Virtual environments
 .venv
 .uv-cache/
 .uv-tools/
+
+# Test, coverage, and type-checker output
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local editor and runtime files
+.idea/
+.vscode/
+*.log
