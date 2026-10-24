@@ -106,7 +106,7 @@ async def test_embed_texts_accepts_exact_storage_dimensions() -> None:
     )
     provider = OpenAIEmbeddingProvider(
         client=client,
-        model="BAAI/bge-m3",
+        model="embedding-model-test",
         dimensions=4,
     )
 
@@ -114,7 +114,7 @@ async def test_embed_texts_accepts_exact_storage_dimensions() -> None:
 
     assert embeddings == [[0.25, 0.75, 0.5, 0.1]]
     create_embedding.assert_awaited_once_with(
-        model="BAAI/bge-m3",
+        model="embedding-model-test",
         input=["incident"],
         encoding_format="float",
     )
@@ -139,7 +139,7 @@ async def test_embed_texts_pads_shorter_gateway_vectors() -> None:
     )
     provider = OpenAIEmbeddingProvider(
         client=client,
-        model="BAAI/bge-m3",
+        model="embedding-model-test",
         dimensions=4,
     )
 

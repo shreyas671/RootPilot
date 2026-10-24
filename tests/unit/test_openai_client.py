@@ -21,31 +21,33 @@ def test_create_openai_client_uses_custom_base_url() -> None:
     client = create_openai_client(
         make_settings(
             openai_base_url=(
-                "https://gateway.bullsai.buffalo.edu/v1"
+                "https://private-gateway.example/v1"
             )
         )
     )
 
     assert str(client.base_url) == (
-        "https://gateway.bullsai.buffalo.edu/v1/"
+        "https://private-gateway.example/v1/"
     )
 
 
-def test_settings_accept_bullsai_model_aliases(
+def test_settings_accept_compatible_gateway_model_aliases(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv(
         "BULLSAI_EMBED_MODEL",
-        "BAAI/bge-m3",
+        "embedding-model-test",
     )
     monkeypatch.setenv(
         "OPENAI_MODEL",
-        "openai/gpt-oss-20b",
+        "analysis-model-test",
     )
 
     settings = make_settings()
 
-    assert settings.openai_embedding_model == "BAAI/bge-m3"
+    assert settings.openai_embedding_model == (
+        "embedding-model-test"
+    )
     assert settings.openai_analysis_model == (
-        "openai/gpt-oss-20b"
+        "analysis-model-test"
     )

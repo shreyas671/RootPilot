@@ -7,7 +7,7 @@
 
 ![RootPilot — from incident signal to grounded decision](dashboard/public/og.png)
 
-RootPilot is an evidence-grounded incident investigation system. It validates incident evidence, retrieves relevant operational runbook sections from PostgreSQL/pgvector, generates a structured root-cause assessment through BullsAI or another OpenAI-compatible model gateway, rejects unsupported citations, persists complete provenance, and requires a human decision before an assessment is accepted.
+RootPilot is an evidence-grounded incident investigation system. It validates incident evidence, retrieves relevant operational runbook sections from PostgreSQL/pgvector, generates a structured root-cause assessment through an OpenAI-compatible model gateway, rejects unsupported citations, persists complete provenance, and requires a human decision before an assessment is accepted.
 
 The repository includes the API, durable worker, persistent vector index, review and audit workflow, evaluation suite, operator dashboard, container image, Docker Compose topology, Kubernetes manifests, database migrations, and CI/image-publishing workflows.
 
@@ -47,7 +47,7 @@ RootPilot never performs remediation against production infrastructure. Its outp
 |---|---|---|
 | Structured incident ingestion | Complete | Strict nested JSON schemas; unknown fields rejected |
 | Runbook chunking | Complete | Markdown split at `##` headings with stable citation IDs |
-| Embeddings | Complete | Async OpenAI-compatible adapter; BullsAI BGE-M3 verified live |
+| Embeddings | Complete | Async adapter for OpenAI-compatible embedding endpoints |
 | Development retrieval | Complete | Deterministic in-memory cosine search |
 | Production retrieval | Complete | PostgreSQL `vector(1536)` storage and HNSW cosine index |
 | Incremental indexing | Complete | Content/model hashes avoid re-embedding unchanged chunks |
@@ -65,7 +65,7 @@ RootPilot never performs remediation against production infrastructure. Its outp
 | Packaging/deployment | Complete | Non-root container, Compose, Vercel/Render/Neon configuration, Kubernetes base |
 | CI/release | Complete | Backend/integration/frontend/container checks and GHCR publishing |
 
-“Complete” means the code and deployment artifacts are implemented and verified locally. A public rollout still requires connected hosting accounts and environment-owned values: a PostgreSQL endpoint, BullsAI/model-gateway credentials, a JWT secret, and the final Vercel origin.
+“Complete” means the code and deployment artifacts are implemented and verified locally. A public rollout still requires connected hosting accounts and environment-owned values: a PostgreSQL endpoint, private model-gateway configuration, a JWT secret, and the final Vercel origin.
 
 ## Quick start
 
@@ -75,11 +75,11 @@ RootPilot never performs remediation against production infrastructure. Its outp
 - [uv](https://docs.astral.sh/uv/)
 - Docker Desktop with Compose
 - Node.js 22.13+
-- A BullsAI developer key, or credentials for another supported OpenAI-compatible endpoint
+- Credentials for a supported OpenAI-compatible endpoint
 
 ### 1. Configure `.env`
 
-Create a root-level `.env` file with your local PostgreSQL values and model gateway configuration. The working BullsAI configuration is:
+Create a root-level `.env` file with your local PostgreSQL values and private model-gateway configuration:
 
 ```dotenv
 POSTGRES_USER=rootpilot
@@ -88,10 +88,10 @@ POSTGRES_DB=rootpilot
 POSTGRES_PORT=5432
 POSTGRES_HOST=localhost
 
-OPENAI_API_KEY=replace-with-your-bullsai-key
-OPENAI_BASE_URL=https://gateway.bullsai.buffalo.edu/v1
-BULLSAI_EMBED_MODEL=BAAI/bge-m3
-OPENAI_MODEL=openai/gpt-oss-20b
+OPENAI_API_KEY=replace-with-your-gateway-key
+OPENAI_BASE_URL=https://your-private-gateway.example/v1
+OPENAI_EMBEDDING_MODEL=your-embedding-model
+OPENAI_ANALYSIS_MODEL=your-analysis-model
 OPENAI_ANALYSIS_API=chat_completions
 
 CORS_ORIGINS=["http://localhost:3000"]
@@ -156,8 +156,8 @@ flowchart LR
         INCIDENTS[Incident JSON catalog]
         RUNBOOKS[Markdown runbooks]
         CHUNKS[Section chunker and citation builder]
-        EMBED[BullsAI / OpenAI-compatible embeddings]
-        ANALYST[BullsAI / OpenAI-compatible analyst]
+        EMBED[OpenAI-compatible embeddings]
+        ANALYST[OpenAI-compatible analyst]
     end
 
     subgraph Data[PostgreSQL plus pgvector]
@@ -221,7 +221,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant W as Worker
     participant V as pgvector
-    participant O as BullsAI / model gateway
+    participant O as Private model gateway
 
     Operator->>UI: Select incident and queue investigation
     UI->>API: POST /jobs
@@ -309,13 +309,13 @@ For each section RootPilot stores:
 
 At worker/CLI startup, only sections whose content hash or embedding model changed are embedded. Stale citations are deleted. The HNSW index uses `vector_cosine_ops`; queries calculate cosine distance in PostgreSQL, convert it to a bounded similarity score, order deterministically, and return top K.
 
-The BullsAI deployment uses `BAAI/bge-m3`, whose native vectors contain 1024 values. RootPilot appends 512 zeros before storage in the fixed PostgreSQL `vector(1536)` column. Zero-padding preserves dot products, norms, and cosine similarity, so retrieval rankings are unchanged while the database schema remains 1536-dimensional.
+When a configured gateway returns an embedding shorter than 1536 values, RootPilot appends zeros before storage in the fixed PostgreSQL `vector(1536)` column. Zero-padding preserves dot products, norms, and cosine similarity, so retrieval rankings are unchanged while the database schema remains 1536-dimensional. Oversized vectors are rejected.
 
 The in-memory retriever remains available for deterministic tests and small local experiments. Production configuration rejects it.
 
 ### Grounded generation
 
-The analyst receives only the validated incident and retrieved sections. The prompt treats runbook text as reference material, not as instructions. Direct OpenAI deployments can use the Responses API; BullsAI uses Chat Completions with strict JSON Schema. Both paths validate into the same `IncidentAssessment`, which requires:
+The analyst receives only the validated incident and retrieved sections. The prompt treats runbook text as reference material, not as instructions. Deployments can use the Responses API or Chat Completions with strict JSON Schema. Both paths validate into the same `IncidentAssessment`, which requires:
 
 - Exact incident ID
 - Root cause
@@ -559,7 +559,7 @@ The dashboard is an investigation and human-review console; it does not execute 
 2. Select **Queue investigation**.
 3. The PostgreSQL worker claims the job and indexes changed runbook sections.
 4. pgvector retrieves the most similar sections.
-5. GPT-OSS generates a schema-constrained assessment.
+5. The configured analysis model generates a schema-constrained assessment.
 6. LangGraph validates the incident ID and citation allowlist.
 7. The completed report appears in **Grounded assessments**.
 8. Open it to inspect the root cause, supporting evidence, recommended actions, verification steps, retrieved citations/scores, and model provenance.
@@ -590,7 +590,7 @@ curl http://localhost:8000/ready
 - Jobs remaining `pending` usually mean the worker is stopped or cannot initialize its model clients.
 - A `401` indicates an invalid gateway credential.
 - A `403` indicates that the credential cannot access the requested model.
-- A schema-validation failure means the model response did not match `IncidentAssessment`; BullsAI must use `OPENAI_ANALYSIS_API=chat_completions`, which enables strict JSON-Schema output.
+- A schema-validation failure means the model response did not match `IncidentAssessment`; compatible gateways should use `OPENAI_ANALYSIS_API=chat_completions`, which enables strict JSON-Schema output.
 - Historical failed jobs remain visible by design. Queue a new job after correcting configuration.
 
 ## CLI workflows
@@ -638,11 +638,11 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `DATABASE_MAX_OVERFLOW` | `20` | Extra burst connections |
 | `DATABASE_POOL_TIMEOUT_SECONDS` | `30` | Pool checkout timeout |
 | `DATABASE_POOL_RECYCLE_SECONDS` | `1800` | Connection recycling interval |
-| `OPENAI_API_KEY` | required | Credential sent to OpenAI or the configured compatible gateway; BullsAI uses its university-issued developer key |
-| `OPENAI_BASE_URL` | OpenAI default | Optional OpenAI-compatible gateway URL; BullsAI uses `https://gateway.bullsai.buffalo.edu/v1` |
-| `OPENAI_EMBEDDING_MODEL` / `BULLSAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model; the first variable takes precedence if both are set |
-| `OPENAI_ANALYSIS_MODEL` / `OPENAI_MODEL` | `gpt-5.6-sol` | Analysis model; the first variable takes precedence if both are set |
-| `OPENAI_ANALYSIS_API` | `responses` | `responses` for OpenAI or `chat_completions` for compatible gateways such as BullsAI |
+| `OPENAI_API_KEY` | required | Credential sent to OpenAI or the configured compatible gateway |
+| `OPENAI_BASE_URL` | OpenAI default | Optional private OpenAI-compatible gateway URL |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Private embedding-model identifier |
+| `OPENAI_ANALYSIS_MODEL` / `OPENAI_MODEL` | `gpt-5.6-sol` | Private analysis-model identifier |
+| `OPENAI_ANALYSIS_API` | `responses` | `responses` for OpenAI or `chat_completions` for compatible gateways |
 | `OPENAI_TIMEOUT_SECONDS` | `60` | SDK request timeout |
 | `OPENAI_MAX_RETRIES` | `2` | SDK-managed retries |
 | `AUTH_ENABLED` | `false` | Enable JWT enforcement; required in production |
@@ -703,17 +703,17 @@ The repository includes a zero-platform-cost hobby/demo topology:
 - Vercel Hobby: the standard Next.js dashboard from the `dashboard` root directory.
 - Render Free: one FastAPI Docker web service with the queue worker embedded in its process.
 - Neon Free: persistent PostgreSQL with pgvector enabled by Alembic.
-- BullsAI: OpenAI-compatible BGE-M3 embeddings and GPT-OSS structured analysis using a university-issued developer key.
+- Private model gateway: OpenAI-compatible embeddings and schema-constrained analysis.
 
 ```mermaid
 flowchart LR
     BROWSER[Browser] --> VERCEL[Vercel Hobby<br/>Next.js dashboard]
     VERCEL --> RENDER[Render Free<br/>FastAPI + embedded worker]
     RENDER --> NEON[(Neon Free<br/>PostgreSQL + pgvector)]
-    RENDER --> BULLSAI[BullsAI gateway<br/>BGE-M3 + GPT-OSS]
+    RENDER --> GATEWAY[Private model gateway<br/>embeddings + analysis]
 ```
 
-Render's free service spins down when idle, so this topology has cold starts and queued jobs run only while the API is awake. BullsAI access is separate from hosting and requires an authorized developer key. Confirm that the gateway permits traffic from Render before treating this topology as remotely usable.
+Render's free service spins down when idle, so this topology has cold starts and queued jobs run only while the API is awake. Model-gateway access is separate from hosting and requires authorized private configuration. Confirm that the gateway permits traffic from Render before treating this topology as remotely usable.
 
 The complete Neon setup, account variables, deployment order, local JWT bootstrap, verification flow, free-tier limits, and troubleshooting guide is in [`docs/deployment-vercel-render.md`](docs/deployment-vercel-render.md). Import `render.yaml` as a Render Blueprint and import `dashboard/` as a Vercel Hobby project when ready.
 

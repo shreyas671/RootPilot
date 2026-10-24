@@ -205,7 +205,7 @@ async def test_openai_analyst_supports_chat_completions() -> None:
     )
     analyst = OpenAIIncidentAnalyst(
         client=client,
-        model="openai/gpt-oss-20b",
+        model="analysis-model-test",
         api="chat_completions",
     )
 
@@ -216,7 +216,7 @@ async def test_openai_analyst_supports_chat_completions() -> None:
 
     assert assessment == expected_assessment
     request = create_completion.await_args.kwargs
-    assert request["model"] == "openai/gpt-oss-20b"
+    assert request["model"] == "analysis-model-test"
     assert request["response_format"]["type"] == (
         "json_schema"
     )

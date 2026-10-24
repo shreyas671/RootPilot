@@ -41,11 +41,11 @@ envVarGroups:
       - key: DOCS_ENABLED
         value: "false"
       - key: OPENAI_BASE_URL
-        value: https://gateway.bullsai.buffalo.edu/v1
-      - key: BULLSAI_EMBED_MODEL
-        value: BAAI/bge-m3
-      - key: OPENAI_MODEL
-        value: openai/gpt-oss-20b
+        sync: false
+      - key: OPENAI_EMBEDDING_MODEL
+        sync: false
+      - key: OPENAI_ANALYSIS_MODEL
+        sync: false
       - key: OPENAI_ANALYSIS_API
         value: chat_completions
       - key: OPENAI_TIMEOUT_SECONDS
