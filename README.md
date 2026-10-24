@@ -374,7 +374,8 @@ apps/metadata_service/
   database.py          async engine and sessions
   observability.py     logs, request middleware, Prometheus
   security.py          JWT parsing and RBAC
-dashboard/             operator web console
+dashboard/             Vercel-ready Next.js operator web console
+docs/                  deployment and operations guides
 data/
   incidents/           five structured incident scenarios
   runbooks/            five operational runbooks / 25 chunks
@@ -385,6 +386,7 @@ tests/unit/            deterministic unit/API tests
 tests/integration/     real PostgreSQL and pgvector tests
 compose.yaml           local PostgreSQL, migration, API, worker topology
 Dockerfile             non-root production API/worker image
+render.yaml            Render database, API, worker, and shared configuration
 ```
 
 ## Local development
@@ -478,7 +480,8 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `ALLOWED_HOSTS` | `["*"]` | Accepted host headers; wildcard forbidden in production |
 | `CORS_ORIGINS` | `[]` | Explicit dashboard/browser origins |
 | `DOCS_ENABLED` | `true` | Serve OpenAPI docs |
-| `POSTGRES_*` | required | Database connection settings |
+| `DATABASE_URL` | unset | Preferred complete PostgreSQL URL; hosted URLs and Neon SSL parameters are normalized for asyncpg |
+| `POSTGRES_*` | required when `DATABASE_URL` is unset | Component database connection settings |
 | `DATABASE_POOL_SIZE` | `10` | Persistent connection pool size |
 | `DATABASE_MAX_OVERFLOW` | `20` | Extra burst connections |
 | `DATABASE_POOL_TIMEOUT_SECONDS` | `30` | Pool checkout timeout |
@@ -499,6 +502,7 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `WORKER_POLL_INTERVAL_SECONDS` | `2` | Empty-queue polling interval |
 | `WORKER_LEASE_SECONDS` | `300` | Claim lease duration |
 | `WORKER_MAX_ATTEMPTS` | `3` | Default bounded attempts |
+| `EMBEDDED_WORKER_ENABLED` | `false` | Run the queue worker in the API process; used only by the free Render topology |
 
 In tests, `ENVIRONMENT=test` selects `NullPool` so async PostgreSQL connections do not leak across isolated test event loops.
 
@@ -538,6 +542,18 @@ The test suite covers validation, loaders, chunking, embeddings, cosine ranking,
 
 ## Production deployment
 
+### Free Vercel frontend and Render backend
+
+The repository includes a zero-platform-cost hobby/demo topology:
+
+- Vercel Hobby: the standard Next.js dashboard from the `dashboard` root directory.
+- Render Free: one FastAPI Docker web service with the queue worker embedded in its process.
+- Neon Free: persistent PostgreSQL with pgvector enabled by Alembic.
+
+Render's free service spins down when idle, so this topology has cold starts and queued jobs run only while the API is awake. OpenAI API usage is separate from the free hosting platforms and still requires API credit.
+
+The complete Neon setup, account variables, deployment order, local JWT bootstrap, verification flow, free-tier limits, and troubleshooting guide is in [`docs/deployment-vercel-render.md`](docs/deployment-vercel-render.md). Import `render.yaml` as a Render Blueprint and import `dashboard/` as a Vercel Hobby project when ready.
+
 ### Container
 
 ```bash
@@ -545,7 +561,7 @@ docker build -t rootpilot:local .
 docker run --rm --env-file .env.production -p 8000:8000 rootpilot:local
 ```
 
-The same image runs migrations (`alembic upgrade head`), the API (default command), or the worker (override command).
+The same image runs migrations (`alembic upgrade head`), the API (default command), or the worker (override command). The free Render Blueprint runs migrations before starting the API and enables the embedded worker.
 
 ### Kubernetes
 

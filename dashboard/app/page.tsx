@@ -73,10 +73,14 @@ const formatTime = (value: string | null) => {
   }).format(new Date(value));
 };
 
+const defaultApiBase =
+  process.env.NEXT_PUBLIC_ROOTPILOT_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8000";
+
 export default function Home() {
   const [apiBase, setApiBase] = useState(() => {
-    if (typeof window === "undefined") return "http://localhost:8000";
-    return window.localStorage.getItem("rootpilot-api-base") ?? "http://localhost:8000";
+    if (typeof window === "undefined") return defaultApiBase;
+    return window.localStorage.getItem("rootpilot-api-base") ?? defaultApiBase;
   });
   const [token, setToken] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);

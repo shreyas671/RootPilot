@@ -1,3 +1,7 @@
+import asyncio
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -14,6 +18,10 @@ from apps.metadata_service.api.investigation_reports import (
     router as investigation_reports_router,
 )
 from apps.metadata_service.api.jobs import router as jobs_router
+from apps.metadata_service.commands.run_worker import (
+    default_worker_id,
+    run_worker,
+)
 from apps.metadata_service.config import get_settings
 from apps.metadata_service.database import get_db_session
 from apps.metadata_service.observability import (
@@ -24,6 +32,42 @@ from apps.metadata_service.observability import (
 
 settings = get_settings()
 configure_logging(settings.log_level)
+logger = logging.getLogger("rootpilot.api")
+
+
+async def supervise_embedded_worker() -> None:
+    while True:
+        try:
+            await run_worker(worker_id=default_worker_id())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("embedded_worker_stopped")
+            await asyncio.sleep(
+                max(
+                    5.0,
+                    settings.worker_poll_interval_seconds,
+                )
+            )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    worker_task: asyncio.Task[None] | None = None
+
+    if settings.embedded_worker_enabled:
+        worker_task = asyncio.create_task(
+            supervise_embedded_worker(),
+            name="rootpilot-embedded-worker",
+        )
+
+    try:
+        yield
+    finally:
+        if worker_task is not None:
+            worker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker_task
 
 app = FastAPI(
     title="RootPilot Metadata Service",
@@ -37,6 +81,7 @@ app = FastAPI(
         if settings.docs_enabled
         else None
     ),
+    lifespan=lifespan,
 )
 
 app.add_middleware(

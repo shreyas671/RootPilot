@@ -1,13 +1,16 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+.DS_Store
 build/
-!dashboard/build/
-!dashboard/build/sites-vite-plugin.ts
 dist/
 wheels/
 *.egg-info
+output/
+tmp/
 .env
 
 # Virtual environments
 .venv
+.uv-cache/
+.uv-tools/

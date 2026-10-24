@@ -1,29 +1,44 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+const port = 3210;
 
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+async function waitForServer(process) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (process.exitCode !== null) {
+      throw new Error(`Next.js exited before becoming ready (${process.exitCode})`);
+    }
+    try {
+      return await fetch(`http://127.0.0.1:${port}/`);
+    } catch {
+      await delay(200);
+    }
+  }
+  throw new Error("Timed out waiting for the Next.js production server");
 }
 
-test("server-renders the RootPilot operations console", async () => {
-  const response = await render();
+test("server-renders the RootPilot operations console", async (context) => {
+  const server = spawn(
+    process.execPath,
+    [
+      "node_modules/next/dist/bin/next",
+      "start",
+      "--hostname",
+      "127.0.0.1",
+      "--port",
+      String(port),
+    ],
+    {
+      cwd: new URL("..", import.meta.url),
+      stdio: "pipe",
+    },
+  );
+  context.after(() => server.kill("SIGTERM"));
+
+  const response = await waitForServer(server);
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 

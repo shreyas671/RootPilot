@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
-from sqlalchemy import URL
+from sqlalchemy import URL, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -17,10 +17,52 @@ from apps.metadata_service.config import get_settings
 def get_database_url() -> URL:
     settings = get_settings()
 
+    if settings.database_url is not None:
+        database_url = make_url(
+            settings.database_url.get_secret_value(),
+        )
+        if database_url.drivername in {
+            "postgres",
+            "postgresql",
+        }:
+            database_url = database_url.set(
+                drivername="postgresql+asyncpg",
+            )
+        elif database_url.drivername != "postgresql+asyncpg":
+            raise ValueError(
+                "DATABASE_URL must use a PostgreSQL scheme"
+            )
+
+        # Hosted PostgreSQL providers commonly return libpq-style
+        # parameters. SQLAlchemy forwards URL query parameters to
+        # asyncpg, which expects `ssl` instead of `sslmode` and does
+        # not accept `channel_binding`.
+        query = dict(database_url.query)
+        ssl_mode = query.pop("sslmode", None)
+        query.pop("channel_binding", None)
+        if ssl_mode is not None:
+            query["ssl"] = ssl_mode
+
+        database_url = database_url.set(query=query)
+        return database_url
+
+    if (
+        settings.postgres_user is None
+        or settings.postgres_password is None
+        or settings.postgres_db is None
+        or settings.postgres_host is None
+        or settings.postgres_port is None
+    ):
+        raise RuntimeError(
+            "PostgreSQL connection settings were not validated"
+        )
+
     return URL.create(
         drivername="postgresql+asyncpg",
         username=settings.postgres_user,
-        password=settings.postgres_password,
+        password=(
+            settings.postgres_password.get_secret_value()
+        ),
         host=settings.postgres_host,
         port=settings.postgres_port,
         database=settings.postgres_db,

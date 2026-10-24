@@ -21,11 +21,12 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=list)
     docs_enabled: bool = True
 
-    postgres_user: str
-    postgres_password: str
-    postgres_db: str
-    postgres_host: str
-    postgres_port: int
+    database_url: SecretStr | None = None
+    postgres_user: str | None = None
+    postgres_password: SecretStr | None = None
+    postgres_db: str | None = None
+    postgres_host: str | None = None
+    postgres_port: int | None = None
     database_pool_size: int = 10
     database_max_overflow: int = 20
     database_pool_timeout_seconds: float = 30.0
@@ -56,6 +57,7 @@ class Settings(BaseSettings):
     worker_poll_interval_seconds: float = 2.0
     worker_lease_seconds: int = 300
     worker_max_attempts: int = 3
+    embedded_worker_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -65,6 +67,26 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> Self:
+        if self.database_url is None:
+            database_components = {
+                "POSTGRES_USER": self.postgres_user,
+                "POSTGRES_PASSWORD": self.postgres_password,
+                "POSTGRES_DB": self.postgres_db,
+                "POSTGRES_HOST": self.postgres_host,
+                "POSTGRES_PORT": self.postgres_port,
+            }
+            missing_components = [
+                name
+                for name, value in database_components.items()
+                if value is None
+            ]
+            if missing_components:
+                missing = ", ".join(missing_components)
+                raise ValueError(
+                    "DATABASE_URL or all PostgreSQL connection "
+                    f"settings are required; missing: {missing}"
+                )
+
         if self.auth_enabled:
             if self.auth_jwt_secret is None:
                 raise ValueError(
