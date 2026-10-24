@@ -27,9 +27,6 @@ class OpenAIEmbeddingProvider:
             "encoding_format": "float",
         }
 
-        if self._dimensions is not None:
-            request["dimensions"] = self._dimensions
-
         response = await self._client.embeddings.create(
             **request,
         )
@@ -52,6 +49,26 @@ class OpenAIEmbeddingProvider:
             )
 
         return [
-            item.embedding
+            self._validate_dimensions(item.embedding)
             for item in response_data
         ]
+
+    def _validate_dimensions(
+        self,
+        embedding: list[float],
+    ) -> list[float]:
+        if self._dimensions is None:
+            return embedding
+
+        if len(embedding) > self._dimensions:
+            raise ValueError(
+                "Embedding response contains more dimensions "
+                "than the configured storage dimension"
+            )
+
+        # Appending zeros preserves dot products, vector norms, and
+        # therefore cosine similarity. This lets a gateway's shorter
+        # native vectors use the fixed vector(1536) database schema.
+        return embedding + [0.0] * (
+            self._dimensions - len(embedding)
+        )

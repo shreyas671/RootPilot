@@ -1,3 +1,5 @@
+from typing import Literal
+
 from openai import AsyncOpenAI
 
 from apps.metadata_service.schemas.assessment import (
@@ -49,9 +51,14 @@ class OpenAIIncidentAnalyst:
         self,
         client: AsyncOpenAI,
         model: str,
+        api: Literal[
+            "responses",
+            "chat_completions",
+        ] = "responses",
     ) -> None:
         self._client = client
         self._model = model
+        self._api = api
 
     async def analyze(
         self,
@@ -65,18 +72,57 @@ class OpenAIIncidentAnalyst:
             retrieved_sections=retrieved_sections,
         )
 
-        response = await self._client.responses.parse(
-            model=self._model,
-            reasoning={
-                "effort": "medium",
-            },
-            instructions=INCIDENT_ANALYST_INSTRUCTIONS,
-            input=analysis_text,
-            text_format=IncidentAssessment,
-            store=False,
-        )
+        if self._api == "chat_completions":
+            response = (
+                await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                INCIDENT_ANALYST_INSTRUCTIONS
+                                + "\nReturn only the requested JSON "
+                                "schema."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": analysis_text,
+                        },
+                    ],
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "incident_assessment",
+                            "strict": True,
+                            "schema": (
+                                IncidentAssessment.model_json_schema()
+                            ),
+                        },
+                    },
+                )
+            )
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError(
+                    "Chat completion did not contain content"
+                )
+            assessment = IncidentAssessment.model_validate_json(
+                content
+            )
+        else:
+            response = await self._client.responses.parse(
+                model=self._model,
+                reasoning={
+                    "effort": "medium",
+                },
+                instructions=INCIDENT_ANALYST_INSTRUCTIONS,
+                input=analysis_text,
+                text_format=IncidentAssessment,
+                store=False,
+            )
 
-        assessment = response.output_parsed
+            assessment = response.output_parsed
 
         if assessment is None:
             raise ValueError(

@@ -85,3 +85,93 @@ async def test_embed_texts_rejects_empty_input() -> None:
         await provider.embed_texts([])
 
     create_embedding.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_embed_texts_accepts_exact_storage_dimensions() -> None:
+    create_embedding = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                SimpleNamespace(
+                    index=0,
+                    embedding=[0.25, 0.75, 0.5, 0.1],
+                ),
+            ]
+        )
+    )
+    client = SimpleNamespace(
+        embeddings=SimpleNamespace(
+            create=create_embedding,
+        )
+    )
+    provider = OpenAIEmbeddingProvider(
+        client=client,
+        model="BAAI/bge-m3",
+        dimensions=4,
+    )
+
+    embeddings = await provider.embed_texts(["incident"])
+
+    assert embeddings == [[0.25, 0.75, 0.5, 0.1]]
+    create_embedding.assert_awaited_once_with(
+        model="BAAI/bge-m3",
+        input=["incident"],
+        encoding_format="float",
+    )
+
+
+@pytest.mark.anyio
+async def test_embed_texts_pads_shorter_gateway_vectors() -> None:
+    create_embedding = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                SimpleNamespace(
+                    index=0,
+                    embedding=[0.25, 0.75],
+                ),
+            ]
+        )
+    )
+    client = SimpleNamespace(
+        embeddings=SimpleNamespace(
+            create=create_embedding,
+        )
+    )
+    provider = OpenAIEmbeddingProvider(
+        client=client,
+        model="BAAI/bge-m3",
+        dimensions=4,
+    )
+
+    embeddings = await provider.embed_texts(["incident"])
+
+    assert embeddings == [[0.25, 0.75, 0.0, 0.0]]
+
+
+@pytest.mark.anyio
+async def test_embed_texts_rejects_oversized_vectors() -> None:
+    client = SimpleNamespace(
+        embeddings=SimpleNamespace(
+            create=AsyncMock(
+                return_value=SimpleNamespace(
+                    data=[
+                        SimpleNamespace(
+                            index=0,
+                            embedding=[0.1, 0.2, 0.3],
+                        ),
+                    ]
+                )
+            ),
+        )
+    )
+    provider = OpenAIEmbeddingProvider(
+        client=client,
+        model="embedding-test",
+        dimensions=2,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="more dimensions",
+    ):
+        await provider.embed_texts(["incident"])

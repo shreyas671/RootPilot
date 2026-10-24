@@ -218,6 +218,8 @@ For each section RootPilot stores:
 
 At worker/CLI startup, only sections whose content hash or embedding model changed are embedded. Stale citations are deleted. The HNSW index uses `vector_cosine_ops`; queries calculate cosine distance in PostgreSQL, convert it to a bounded similarity score, order deterministically, and return top K.
 
+The BullsAI deployment uses `BAAI/bge-m3`, whose native vectors contain 1024 values. RootPilot appends 512 zeros before storage in the fixed PostgreSQL `vector(1536)` column. Zero-padding preserves dot products, norms, and cosine similarity, so retrieval rankings are unchanged while the database schema remains 1536-dimensional.
+
 The in-memory retriever remains available for deterministic tests and small local experiments. Production configuration rejects it.
 
 ### Grounded generation
@@ -487,8 +489,10 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `DATABASE_POOL_TIMEOUT_SECONDS` | `30` | Pool checkout timeout |
 | `DATABASE_POOL_RECYCLE_SECONDS` | `1800` | Connection recycling interval |
 | `OPENAI_API_KEY` | required | OpenAI API credential |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
-| `OPENAI_ANALYSIS_MODEL` | `gpt-5.6-sol` | Structured analysis model |
+| `OPENAI_BASE_URL` | OpenAI default | Optional OpenAI-compatible gateway URL; BullsAI uses `https://gateway.bullsai.buffalo.edu/v1` |
+| `OPENAI_EMBEDDING_MODEL` / `BULLSAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model; the first variable takes precedence if both are set |
+| `OPENAI_ANALYSIS_MODEL` / `OPENAI_MODEL` | `gpt-5.6-sol` | Analysis model; the first variable takes precedence if both are set |
+| `OPENAI_ANALYSIS_API` | `responses` | `responses` for OpenAI or `chat_completions` for compatible gateways such as BullsAI |
 | `OPENAI_TIMEOUT_SECONDS` | `60` | SDK request timeout |
 | `OPENAI_MAX_RETRIES` | `2` | SDK-managed retries |
 | `AUTH_ENABLED` | `false` | Enable JWT enforcement; required in production |
@@ -496,7 +500,7 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `AUTH_JWT_ISSUER` | unset | Optional required issuer |
 | `AUTH_JWT_AUDIENCE` | unset | Optional required audience |
 | `RETRIEVAL_BACKEND` | `memory` | `memory` or `postgres`; PostgreSQL required in production |
-| `EMBEDDING_DIMENSIONS` | `1536` | Must match the vector migration/model |
+| `EMBEDDING_DIMENSIONS` | `1536` | Fixed pgvector storage dimension; shorter gateway vectors are zero-padded without changing cosine similarity |
 | `DEFAULT_RETRIEVAL_LIMIT` | `3` | Worker top-K |
 | `DEFAULT_MINIMUM_RELEVANCE_SCORE` | `0.0` | Worker relevance floor |
 | `WORKER_POLL_INTERVAL_SECONDS` | `2` | Empty-queue polling interval |

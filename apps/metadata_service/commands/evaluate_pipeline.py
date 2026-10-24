@@ -95,6 +95,7 @@ async def evaluate_pipeline(
         analyst = OpenAIIncidentAnalyst(
             client=client,
             model=settings.openai_analysis_model,
+            api=settings.openai_analysis_api,
         )
         summary = await run_pipeline_evaluation(
             dataset=dataset,

@@ -260,6 +260,7 @@ async def test_persisted_command_executes_workflow(
         lambda: SimpleNamespace(
             openai_embedding_model="embedding-test",
             openai_analysis_model="analysis-test",
+            openai_analysis_api="responses",
             embedding_dimensions=1536,
             retrieval_backend="memory",
         ),
@@ -287,7 +288,7 @@ async def test_persisted_command_executes_workflow(
     monkeypatch.setattr(
         command_module,
         "OpenAIIncidentAnalyst",
-        lambda client, model: object(),
+        lambda client, model, api: object(),
     )
     monkeypatch.setattr(
         command_module,

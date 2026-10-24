@@ -8,7 +8,7 @@ Browser
        -> HTTPS + short-lived bearer token
             -> Render Free: FastAPI API + embedded queue worker
                  -> Neon Free: PostgreSQL + pgvector
-                 -> OpenAI embeddings and structured analysis
+                 -> BullsAI/OpenAI-compatible embeddings and structured analysis
 ```
 
 The API and queue worker share one Render process because Render does not offer

@@ -268,6 +268,7 @@ async def investigate_incident(
         analyst = OpenAIIncidentAnalyst(
             client=client,
             model=settings.openai_analysis_model,
+            api=settings.openai_analysis_api,
         )
 
         graph = build_investigation_graph(

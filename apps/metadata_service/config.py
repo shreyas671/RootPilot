@@ -1,7 +1,12 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    SecretStr,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
@@ -33,10 +38,25 @@ class Settings(BaseSettings):
     database_pool_recycle_seconds: int = 1800
 
     openai_api_key: SecretStr
-    openai_embedding_model: str = (
-        "text-embedding-3-small"
+    openai_base_url: str | None = None
+    openai_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        validation_alias=AliasChoices(
+            "OPENAI_EMBEDDING_MODEL",
+            "BULLSAI_EMBED_MODEL",
+        ),
     )
-    openai_analysis_model: str = "gpt-5.6-sol"
+    openai_analysis_model: str = Field(
+        default="gpt-5.6-sol",
+        validation_alias=AliasChoices(
+            "OPENAI_ANALYSIS_MODEL",
+            "OPENAI_MODEL",
+        ),
+    )
+    openai_analysis_api: Literal[
+        "responses",
+        "chat_completions",
+    ] = "responses"
     openai_timeout_seconds: float = 60.0
     openai_max_retries: int = 2
 
@@ -63,6 +83,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     @model_validator(mode="after")

@@ -177,3 +177,54 @@ async def test_openai_analyst_rejects_empty_context() -> None:
         )
 
     parse_response.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_openai_analyst_supports_chat_completions() -> None:
+    incident, retrieved_sections = make_context()
+    expected_assessment = make_assessment()
+    create_completion = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            expected_assessment.model_dump_json()
+                        ),
+                    )
+                )
+            ]
+        )
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=create_completion,
+            )
+        )
+    )
+    analyst = OpenAIIncidentAnalyst(
+        client=client,
+        model="openai/gpt-oss-20b",
+        api="chat_completions",
+    )
+
+    assessment = await analyst.analyze(
+        incident=incident,
+        retrieved_sections=retrieved_sections,
+    )
+
+    assert assessment == expected_assessment
+    request = create_completion.await_args.kwargs
+    assert request["model"] == "openai/gpt-oss-20b"
+    assert request["response_format"]["type"] == (
+        "json_schema"
+    )
+    json_schema = request["response_format"]["json_schema"]
+    assert json_schema["name"] == "incident_assessment"
+    assert json_schema["strict"] is True
+    assert json_schema["schema"] == (
+        IncidentAssessment.model_json_schema()
+    )
+    assert request["messages"][0]["role"] == "system"
+    assert "INC-DB-001" in request["messages"][1]["content"]

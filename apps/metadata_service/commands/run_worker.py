@@ -163,6 +163,7 @@ async def run_worker(
         analyst = OpenAIIncidentAnalyst(
             client=client,
             model=settings.openai_analysis_model,
+            api=settings.openai_analysis_api,
         )
         workflow = build_investigation_graph(
             retriever=retriever,
