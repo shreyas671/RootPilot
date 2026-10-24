@@ -1,8 +1,32 @@
 # RootPilot
 
-RootPilot is a production-oriented, evidence-grounded incident investigation system. It validates incident evidence, retrieves the most relevant operational runbook sections from PostgreSQL/pgvector, generates a structured root-cause assessment with OpenAI, rejects unsupported citations, persists the result with complete provenance, and requires a human decision before an assessment is accepted.
+[![CI](https://github.com/shreyas671/RootPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/shreyas671/RootPilot/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](dashboard/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
+
+![RootPilot — from incident signal to grounded decision](dashboard/public/og.png)
+
+RootPilot is an evidence-grounded incident investigation system. It validates incident evidence, retrieves relevant operational runbook sections from PostgreSQL/pgvector, generates a structured root-cause assessment through BullsAI or another OpenAI-compatible model gateway, rejects unsupported citations, persists complete provenance, and requires a human decision before an assessment is accepted.
 
 The repository includes the API, durable worker, persistent vector index, review and audit workflow, evaluation suite, operator dashboard, container image, Docker Compose topology, Kubernetes manifests, database migrations, and CI/image-publishing workflows.
+
+> **Current deployment status:** the application is verified locally but does not yet have a public URL. The repository is prepared for a free hobby/demo deployment using Vercel, Render, and Neon. See [Deployment](#production-deployment).
+
+## Contents
+
+- [Why RootPilot exists](#why-rootpilot-exists)
+- [Current capability status](#current-capability-status)
+- [Quick start](#quick-start)
+- [System architecture](#system-architecture)
+- [End-to-end execution](#end-to-end-execution)
+- [Retrieval and RAG design](#retrieval-and-rag-design)
+- [Using the operator console](#using-the-operator-console)
+- [API](#api)
+- [Configuration](#configuration)
+- [Testing and quality](#testing-and-quality)
+- [Production deployment](#production-deployment)
+- [Evaluation scenarios](#evaluation-scenarios)
 
 ## Why RootPilot exists
 
@@ -23,7 +47,7 @@ RootPilot never performs remediation against production infrastructure. Its outp
 |---|---|---|
 | Structured incident ingestion | Complete | Strict nested JSON schemas; unknown fields rejected |
 | Runbook chunking | Complete | Markdown split at `##` headings with stable citation IDs |
-| Embeddings | Complete | Async OpenAI adapter behind an internal protocol |
+| Embeddings | Complete | Async OpenAI-compatible adapter; BullsAI BGE-M3 verified live |
 | Development retrieval | Complete | Deterministic in-memory cosine search |
 | Production retrieval | Complete | PostgreSQL `vector(1536)` storage and HNSW cosine index |
 | Incremental indexing | Complete | Content/model hashes avoid re-embedding unchanged chunks |
@@ -38,10 +62,77 @@ RootPilot never performs remediation against production infrastructure. Its outp
 | Operator interface | Complete | Responsive web console for queue, review, provenance, and audit history |
 | Evaluation | Complete | Five labeled scenarios, retrieval/RCA metrics, configurable pass-rate gate |
 | Database evolution | Complete | Alembic migrations with drift checking |
-| Packaging/deployment | Complete | Non-root container, Compose stack, Kubernetes base manifests |
+| Packaging/deployment | Complete | Non-root container, Compose, Vercel/Render/Neon configuration, Kubernetes base |
 | CI/release | Complete | Backend/integration/frontend/container checks and GHCR publishing |
 
-“Complete” here means the code and deployment artifacts are present and verified locally. A real production rollout still requires environment-owned values and infrastructure: a PostgreSQL endpoint, API credentials, a JWT issuer/secret, DNS/TLS, a container registry owner, and a Kubernetes or other runtime target.
+“Complete” means the code and deployment artifacts are implemented and verified locally. A public rollout still requires connected hosting accounts and environment-owned values: a PostgreSQL endpoint, BullsAI/model-gateway credentials, a JWT secret, and the final Vercel origin.
+
+## Quick start
+
+### Prerequisites
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
+- Docker Desktop with Compose
+- Node.js 22.13+
+- A BullsAI developer key, or credentials for another supported OpenAI-compatible endpoint
+
+### 1. Configure `.env`
+
+Create a root-level `.env` file with your local PostgreSQL values and model gateway configuration. The working BullsAI configuration is:
+
+```dotenv
+POSTGRES_USER=rootpilot
+POSTGRES_PASSWORD=change_me
+POSTGRES_DB=rootpilot
+POSTGRES_PORT=5432
+POSTGRES_HOST=localhost
+
+OPENAI_API_KEY=replace-with-your-bullsai-key
+OPENAI_BASE_URL=https://gateway.bullsai.buffalo.edu/v1
+BULLSAI_EMBED_MODEL=BAAI/bge-m3
+OPENAI_MODEL=openai/gpt-oss-20b
+OPENAI_ANALYSIS_API=chat_completions
+
+CORS_ORIGINS=["http://localhost:3000"]
+AUTH_ENABLED=false
+```
+
+Do not add `EMBEDDED_WORKER_ENABLED=true` locally when running the separate Compose worker.
+
+### 2. Start PostgreSQL, migrations, API, and worker
+
+```bash
+docker compose up -d --build postgres migrate api worker
+docker compose ps
+curl http://localhost:8000/ready
+```
+
+Expected readiness response:
+
+```json
+{"status":"ready","service":"metadata-service","database":"connected"}
+```
+
+### 3. Start the dashboard
+
+```bash
+cd dashboard
+npm ci
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000), use `http://localhost:8000` as the API endpoint, leave the bearer token empty for local development, and select **Connect workspace**.
+
+### 4. Run an investigation
+
+Select a prepared incident, choose **Queue investigation**, and watch the job transition:
+
+```text
+pending -> processing -> completed
+```
+
+The resulting assessment appears in **Grounded assessments** with its root cause, evidence, remediation recommendations, verification steps, citations, retrieval scores, model provenance, and approve/reject controls.
 
 ## System architecture
 
@@ -65,8 +156,8 @@ flowchart LR
         INCIDENTS[Incident JSON catalog]
         RUNBOOKS[Markdown runbooks]
         CHUNKS[Section chunker and citation builder]
-        EMBED[OpenAI embeddings]
-        ANALYST[OpenAI structured analyst]
+        EMBED[BullsAI / OpenAI-compatible embeddings]
+        ANALYST[BullsAI / OpenAI-compatible analyst]
     end
 
     subgraph Data[PostgreSQL plus pgvector]
@@ -130,7 +221,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant W as Worker
     participant V as pgvector
-    participant O as OpenAI
+    participant O as BullsAI / model gateway
 
     Operator->>UI: Select incident and queue investigation
     UI->>API: POST /jobs
@@ -155,7 +246,7 @@ sequenceDiagram
 
     alt Valid assessment
         W->>DB: Insert report + provenance; complete job
-    else Transient OpenAI failure
+    else Transient model-gateway failure
         W->>DB: Requeue with bounded exponential delay
     else Permanent/validation failure
         W->>DB: Mark job failed with bounded error detail
@@ -177,7 +268,7 @@ The queue is intentionally implemented in PostgreSQL so job state and report sta
 - If heartbeat renewal fails, the in-flight operation is cancelled rather than continuing without ownership.
 - An expired lease can be reclaimed while attempts remain.
 - An expired lease at the maximum attempt count is converted to `failed`, so jobs cannot remain stuck forever.
-- Transient OpenAI connection, timeout, internal-server, and rate-limit failures are requeued with bounded exponential delay.
+- Transient model-gateway connection, timeout, internal-server, and rate-limit failures are requeued with bounded exponential delay.
 - Other failures are terminal and retain a bounded diagnostic message.
 - Model/network work never runs inside a long-lived database transaction.
 
@@ -224,7 +315,7 @@ The in-memory retriever remains available for deterministic tests and small loca
 
 ### Grounded generation
 
-The analyst receives only the validated incident and retrieved sections. The prompt treats runbook text as reference material, not as instructions. The Responses API parses directly into `IncidentAssessment`, which requires:
+The analyst receives only the validated incident and retrieved sections. The prompt treats runbook text as reference material, not as instructions. Direct OpenAI deployments can use the Responses API; BullsAI uses Chat Completions with strict JSON Schema. Both paths validate into the same `IncidentAssessment`, which requires:
 
 - Exact incident ID
 - Root cause
@@ -388,7 +479,7 @@ tests/unit/            deterministic unit/API tests
 tests/integration/     real PostgreSQL and pgvector tests
 compose.yaml           local PostgreSQL, migration, API, worker topology
 Dockerfile             non-root production API/worker image
-render.yaml            Render database, API, worker, and shared configuration
+render.yaml            Free Render API/embedded-worker and shared configuration
 ```
 
 ## Local development
@@ -443,6 +534,65 @@ npm run dev
 
 Open `http://localhost:3000`, enter the API URL and, when auth is enabled, a bearer token. The token remains in React memory and is cleared when the tab closes; only the API base URL is stored locally.
 
+## Using the operator console
+
+The dashboard is an investigation and human-review console; it does not execute remediation against infrastructure.
+
+### Connection card
+
+- **API endpoint:** use `http://localhost:8000` locally or the Render HTTPS URL after deployment.
+- **Bearer token:** leave blank when `AUTH_ENABLED=false`; production requires a short-lived viewer, operator, or admin JWT.
+- **Control plane online:** confirms the browser can reach the API and database. Worker failures are shown through job status and logs rather than this connection indicator.
+
+### Summary cards
+
+| Card | Meaning |
+|---|---|
+| Active jobs | Jobs in `pending` or `processing` state |
+| Awaiting review | Completed reports requiring a human decision |
+| Approved RCAs | Reports accepted by an operator |
+| Failed runs | Terminal investigations with retained diagnostics |
+
+### Investigation flow
+
+1. Choose one of the five prepared incidents.
+2. Select **Queue investigation**.
+3. The PostgreSQL worker claims the job and indexes changed runbook sections.
+4. pgvector retrieves the most similar sections.
+5. GPT-OSS generates a schema-constrained assessment.
+6. LangGraph validates the incident ID and citation allowlist.
+7. The completed report appears in **Grounded assessments**.
+8. Open it to inspect the root cause, supporting evidence, recommended actions, verification steps, retrieved citations/scores, and model provenance.
+9. Select **Approve RCA**, or provide feedback and select **Reject assessment**.
+10. The review transition is persisted once and appended to the audit history.
+
+`completed` means the investigation report was generated successfully. It does **not** mean RootPilot changed or repaired the affected infrastructure.
+
+### Prepared incidents
+
+| Incident | Scenario |
+|---|---|
+| `INC-DB-001` | PostgreSQL application connection-pool exhaustion |
+| `INC-KAFKA-001` | Incompatible Kafka event and consumer lag |
+| `INC-CACHE-001` | Redis hot key and cache connection saturation |
+| `INC-TLS-001` | Partner webhook certificate expiration |
+| `INC-MEMORY-001` | Image worker memory leak and Kubernetes OOM restarts |
+
+### Troubleshooting
+
+```bash
+docker compose ps
+docker compose logs -f api
+docker compose logs -f worker
+curl http://localhost:8000/ready
+```
+
+- Jobs remaining `pending` usually mean the worker is stopped or cannot initialize its model clients.
+- A `401` indicates an invalid gateway credential.
+- A `403` indicates that the credential cannot access the requested model.
+- A schema-validation failure means the model response did not match `IncidentAssessment`; BullsAI must use `OPENAI_ANALYSIS_API=chat_completions`, which enables strict JSON-Schema output.
+- Historical failed jobs remain visible by design. Queue a new job after correcting configuration.
+
 ## CLI workflows
 
 Retrieve runbooks:
@@ -488,7 +638,7 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `DATABASE_MAX_OVERFLOW` | `20` | Extra burst connections |
 | `DATABASE_POOL_TIMEOUT_SECONDS` | `30` | Pool checkout timeout |
 | `DATABASE_POOL_RECYCLE_SECONDS` | `1800` | Connection recycling interval |
-| `OPENAI_API_KEY` | required | OpenAI API credential |
+| `OPENAI_API_KEY` | required | Credential sent to OpenAI or the configured compatible gateway; BullsAI uses its university-issued developer key |
 | `OPENAI_BASE_URL` | OpenAI default | Optional OpenAI-compatible gateway URL; BullsAI uses `https://gateway.bullsai.buffalo.edu/v1` |
 | `OPENAI_EMBEDDING_MODEL` / `BULLSAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model; the first variable takes precedence if both are set |
 | `OPENAI_ANALYSIS_MODEL` / `OPENAI_MODEL` | `gpt-5.6-sol` | Analysis model; the first variable takes precedence if both are set |
@@ -553,8 +703,17 @@ The repository includes a zero-platform-cost hobby/demo topology:
 - Vercel Hobby: the standard Next.js dashboard from the `dashboard` root directory.
 - Render Free: one FastAPI Docker web service with the queue worker embedded in its process.
 - Neon Free: persistent PostgreSQL with pgvector enabled by Alembic.
+- BullsAI: OpenAI-compatible BGE-M3 embeddings and GPT-OSS structured analysis using a university-issued developer key.
 
-Render's free service spins down when idle, so this topology has cold starts and queued jobs run only while the API is awake. OpenAI API usage is separate from the free hosting platforms and still requires API credit.
+```mermaid
+flowchart LR
+    BROWSER[Browser] --> VERCEL[Vercel Hobby<br/>Next.js dashboard]
+    VERCEL --> RENDER[Render Free<br/>FastAPI + embedded worker]
+    RENDER --> NEON[(Neon Free<br/>PostgreSQL + pgvector)]
+    RENDER --> BULLSAI[BullsAI gateway<br/>BGE-M3 + GPT-OSS]
+```
+
+Render's free service spins down when idle, so this topology has cold starts and queued jobs run only while the API is awake. BullsAI access is separate from hosting and requires an authorized developer key. Confirm that the gateway permits traffic from Render before treating this topology as remotely usable.
 
 The complete Neon setup, account variables, deployment order, local JWT bootstrap, verification flow, free-tier limits, and troubleshooting guide is in [`docs/deployment-vercel-render.md`](docs/deployment-vercel-render.md). Import `render.yaml` as a Render Blueprint and import `dashboard/` as a Vercel Hobby project when ready.
 
@@ -565,7 +724,7 @@ docker build -t rootpilot:local .
 docker run --rm --env-file .env.production -p 8000:8000 rootpilot:local
 ```
 
-The same image runs migrations (`alembic upgrade head`), the API (default command), or the worker (override command). The free Render Blueprint runs migrations before starting the API and enables the embedded worker.
+The same image runs migrations (`alembic upgrade head`), the API (default command), or the worker (override command). The free Render Blueprint runs migrations before starting the API and enables the embedded worker because Render does not provide a free standalone background-worker instance.
 
 ### Kubernetes
 
@@ -618,7 +777,7 @@ The following rules are deliberate and should remain true as the project evolves
 1. Unvalidated incident evidence never enters retrieval.
 2. Stable citation IDs are produced by the loader, not invented by the model.
 3. Production vectors are durable and queried in PostgreSQL.
-4. No OpenAI/network request occurs while a row lock or long DB transaction is held.
+4. No model-gateway/network request occurs while a row lock or long DB transaction is held.
 5. A worker must maintain lease ownership while doing work.
 6. Retry counts are bounded and exhausted jobs become terminal.
 7. A persisted report must have passed graph validation.

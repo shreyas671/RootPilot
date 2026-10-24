@@ -23,8 +23,9 @@ Render container starts; they are transactional and no-op when already current.
 - Render's Free web service costs $0, spins down after 15 idle minutes, and can
   take about a minute to wake up.
 - Neon Free provides persistent serverless PostgreSQL within its usage limits.
-- OpenAI API usage is separate from hosting and requires API credit. RootPilot's
-  investigation pipeline cannot generate embeddings or assessments without it.
+- BullsAI/model-gateway access is separate from hosting and requires an
+  authorized developer key. RootPilot cannot generate embeddings or assessments
+  when the configured gateway or models are unavailable.
 
 This topology is suitable for learning, portfolio demonstrations, and light
 personal use. It is not an always-on production topology.
@@ -70,7 +71,7 @@ origin will be `https://YOUR-PROJECT.vercel.app`.
 
    ```text
    DATABASE_URL=<the complete Neon connection string>
-   OPENAI_API_KEY=<your OpenAI API key>
+   OPENAI_API_KEY=<your BullsAI developer key>
    AUTH_JWT_SECRET=<the 64-character value generated above>
    CORS_ORIGINS=["https://YOUR-PROJECT.vercel.app"]
    ```
@@ -173,8 +174,9 @@ or `/health` wakes the service.
 ### Jobs remain pending or fail
 
 - Wake the Render service and keep it active while testing.
-- Inspect Render logs for `embedded_worker_stopped` or OpenAI errors.
-- Confirm the OpenAI key is valid and has available API credit.
+- Inspect Render logs for `embedded_worker_stopped` or model-gateway errors.
+- Confirm the BullsAI key is valid and authorized for `BAAI/bge-m3` and
+  `openai/gpt-oss-20b`.
 - The supervisor retries a failed embedded worker without taking the API down.
 
 ### 401 or 403
