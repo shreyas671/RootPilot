@@ -227,6 +227,11 @@ sequenceDiagram
     participant W as Worker
     participant V as pgvector
     participant O as Private model gateway
+    participant LS as LangSmith
+
+    Note over W,O: Worker startup index synchronization
+    W->>O: Embed changed runbook chunks
+    W->>V: Upsert vectors and source metadata
 
     Operator->>UI: Select incident and queue investigation
     UI->>API: POST /jobs
@@ -240,8 +245,6 @@ sequenceDiagram
         W->>DB: Renew owned lease
     end
 
-    W->>O: Embed changed runbook chunks
-    W->>V: Upsert vectors and source metadata
     W->>O: Embed incident query
     W->>V: Cosine top-K search
     V-->>W: Ranked runbook sections
@@ -250,14 +253,18 @@ sequenceDiagram
     W->>W: Validate incident ID and citation allowlist
 
     alt Valid assessment
-        W->>DB: Insert report + provenance; complete job
+        W->>DB: Insert report and provenance, then complete job
     else Transient model-gateway failure
         W->>DB: Requeue with bounded exponential delay
     else Permanent/validation failure
         W->>DB: Mark job failed with bounded error detail
     end
 
-    UI->>API: GET pending report
+    opt LangSmith tracing enabled
+        W-->>LS: Export graph, retrieval, model, and error spans
+    end
+
+    UI->>API: GET /jobs and /investigation-reports
     Operator->>UI: Approve or reject
     UI->>API: PATCH /investigation-reports/{id}/review
     API->>DB: Lock report, update once, append audit event
@@ -359,7 +366,7 @@ erDiagram
         uuid id PK
         string incident_id
         string input_path
-        enum status
+        string status
         int attempt_count
         int max_attempts
         string claimed_by
@@ -372,7 +379,7 @@ erDiagram
 
     INVESTIGATION_REPORTS {
         uuid id PK
-        uuid job_id FK_UK
+        uuid job_id FK, UK
         string incident_id
         text root_cause
         jsonb supporting_evidence
@@ -387,14 +394,14 @@ erDiagram
         int retrieval_limit
         float minimum_relevance_score
         jsonb retrieved_sections
-        enum status
+        string status
     }
 
     INVESTIGATION_REVIEW_EVENTS {
         uuid id PK
         uuid report_id FK
-        enum previous_status
-        enum new_status
+        string previous_status
+        string new_status
         string reviewed_by
         text reviewer_feedback
         timestamptz created_at
