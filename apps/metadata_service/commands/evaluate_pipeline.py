@@ -3,6 +3,9 @@ import asyncio
 from pathlib import Path
 
 from apps.metadata_service.config import get_settings
+from apps.metadata_service.observability import (
+    flush_langsmith_traces,
+)
 from apps.metadata_service.schemas.evaluation import (
     PipelineEvaluationSummary,
 )
@@ -108,6 +111,7 @@ async def evaluate_pipeline(
         return summary
     finally:
         await client.close()
+        flush_langsmith_traces(settings)
 
 
 def main() -> None:

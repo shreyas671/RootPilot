@@ -2,6 +2,9 @@ import argparse
 import asyncio
 
 from apps.metadata_service.config import get_settings
+from apps.metadata_service.observability import (
+    flush_langsmith_traces,
+)
 from apps.metadata_service.services.incident_loader import (
     load_incidents,
 )
@@ -77,6 +80,7 @@ async def retrieve_runbooks(
         )
     finally:
         await client.close()
+        flush_langsmith_traces(settings)
 
     print(f"Incident: {incident_id}")
     print(

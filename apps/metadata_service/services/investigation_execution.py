@@ -3,6 +3,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 from uuid import UUID
 
+from langsmith import traceable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.metadata_service.models.investigation_report import (
@@ -52,6 +53,63 @@ class InvalidInvestigationResultError(ValueError):
     pass
 
 
+def _trace_investigation_inputs(
+    inputs: dict[str, object],
+) -> dict[str, object]:
+    incident = inputs.get("incident")
+
+    return {
+        "job_id": str(inputs.get("job_id", "unknown")),
+        "incident_id": getattr(
+            incident,
+            "incident_id",
+            "unknown",
+        ),
+        "embedding_model": inputs.get(
+            "embedding_model",
+            "unknown",
+        ),
+        "analysis_model": inputs.get(
+            "analysis_model",
+            "unknown",
+        ),
+        "retrieval_backend": inputs.get(
+            "retrieval_backend",
+            "unknown",
+        ),
+        "retrieval_limit": inputs.get(
+            "retrieval_limit",
+            0,
+        ),
+        "minimum_relevance_score": inputs.get(
+            "minimum_relevance_score",
+            0.0,
+        ),
+    }
+
+
+def _trace_investigation_output(
+    output: object,
+) -> dict[str, object]:
+    return {
+        "report_id": str(
+            getattr(output, "id", "unknown")
+        ),
+        "incident_id": getattr(
+            output,
+            "incident_id",
+            "unknown",
+        ),
+        "review_status": str(
+            getattr(
+                getattr(output, "status", None),
+                "value",
+                "unknown",
+            )
+        ),
+    }
+
+
 async def execute_and_persist_investigation(
     job_id: UUID,
     incident: IncidentEvidence,
@@ -86,6 +144,13 @@ async def execute_and_persist_investigation(
     )
 
 
+@traceable(
+    name="rootpilot_execute_investigation",
+    run_type="chain",
+    process_inputs=_trace_investigation_inputs,
+    process_outputs=_trace_investigation_output,
+    tags=["rootpilot", "investigation"],
+)
 async def execute_claimed_and_persist_investigation(
     job_id: UUID,
     incident: IncidentEvidence,

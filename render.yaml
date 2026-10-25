@@ -24,6 +24,8 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
       - key: AUTH_JWT_SECRET
         sync: false
       - key: CORS_ORIGINS
@@ -52,6 +54,14 @@ envVarGroups:
         value: "60"
       - key: OPENAI_MAX_RETRIES
         value: "2"
+      - key: LANGSMITH_TRACING
+        value: "false"
+      - key: LANGSMITH_PROJECT
+        value: rootpilot-production
+      - key: LANGSMITH_HIDE_INPUTS
+        value: "false"
+      - key: LANGSMITH_HIDE_OUTPUTS
+        value: "false"
       - key: AUTH_ENABLED
         value: "true"
       - key: AUTH_JWT_ALGORITHM

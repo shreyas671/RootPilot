@@ -58,7 +58,7 @@ RootPilot never performs remediation against production infrastructure. Its outp
 | Human review | Complete | One-time approve/reject transition with required rejection feedback |
 | Audit history | Complete | Immutable review events |
 | Authentication/RBAC | Complete | JWT bearer auth with viewer, operator, and admin roles |
-| Observability | Complete | JSON logs, request IDs, latency/request Prometheus metrics, health/readiness |
+| Observability | Complete | JSON logs, request IDs, Prometheus metrics, health/readiness, opt-in LangSmith traces |
 | Operator interface | Complete | Responsive web console for queue, review, provenance, and audit history |
 | Evaluation | Complete | Five labeled scenarios, retrieval/RCA metrics, configurable pass-rate gate |
 | Database evolution | Complete | Alembic migrations with drift checking |
@@ -170,6 +170,7 @@ flowchart LR
     subgraph Ops[Production operations]
         METRICS[Prometheus metrics]
         LOGS[Structured JSON logs]
+        TRACES[LangSmith traces]
         MIGRATIONS[Alembic migrations]
     end
 
@@ -195,6 +196,9 @@ flowchart LR
     API --> METRICS
     API --> LOGS
     WORKER --> LOGS
+    GRAPH -. opt-in .-> TRACES
+    EMBED -. opt-in .-> TRACES
+    ANALYST -. opt-in .-> TRACES
     MIGRATIONS --> Data
 ```
 
@@ -208,6 +212,7 @@ flowchart LR
 | PostgreSQL retriever | `services/postgres_retriever.py` | Incremental runbook indexing and database-side cosine ranking |
 | Investigation graph | `services/investigation_graph.py` | Evidence retrieval, relevance filtering, structured analysis, grounding validation |
 | Execution coordinator | `services/investigation_execution.py` | Keeps model calls outside DB transactions and persists terminal state |
+| LangSmith instrumentation | `observability.py`, traced services | Opt-in graph, embedding, model-call, latency, error, and correlation traces |
 | Review service | `services/investigation_reports.py` | Locked state transitions and immutable audit-event creation |
 | Operator console | `dashboard/` | Queue and monitor jobs, inspect reports/provenance, approve or reject assessments |
 
@@ -446,6 +451,18 @@ JWT issuance belongs to the deploying identity system. RootPilot validates token
 
 Application logs are JSON objects containing UTC timestamp, level, logger, event message, and relevant request/job/incident context. Incoming `X-Request-ID` is preserved (bounded to 128 characters); otherwise RootPilot creates one and returns it in the response.
 
+[LangSmith](https://docs.langchain.com/langsmith/observability-quickstart) tracing is opt-in. When enabled, RootPilot records the named LangGraph investigation, retrieval and validation nodes, redacted embedding-call summaries, OpenAI-compatible model calls, execution latency, errors, and job/incident correlation metadata. Short-lived CLI processes flush pending traces before exiting.
+
+Create a LangSmith API key, then add the following only to the runtime environment (never to Git):
+
+```dotenv
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=replace-with-your-langsmith-api-key
+LANGSMITH_PROJECT=rootpilot-local
+```
+
+LangGraph traces can contain incident evidence, retrieved runbook text, and generated assessments. For sensitive environments, set `LANGSMITH_HIDE_INPUTS=true` and/or `LANGSMITH_HIDE_OUTPUTS=true`. `LANGSMITH_ENDPOINT` selects a non-default regional or self-hosted endpoint, and `LANGSMITH_WORKSPACE_ID` selects a workspace when an API key belongs to more than one. Tracing is disabled by default and never affects investigation success when trace flushing fails.
+
 `/metrics` exports:
 
 - `rootpilot_http_requests_total{method,route,status}`
@@ -465,7 +482,7 @@ apps/metadata_service/
   services/            loaders, RAG, graph, queue, reports, evaluation
   config.py            typed environment configuration
   database.py          async engine and sessions
-  observability.py     logs, request middleware, Prometheus
+  observability.py     logs, request middleware, Prometheus, LangSmith setup
   security.py          JWT parsing and RBAC
 dashboard/             Vercel-ready Next.js operator web console
 docs/                  deployment and operations guides
@@ -645,6 +662,13 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `OPENAI_ANALYSIS_API` | `responses` | `responses` for OpenAI or `chat_completions` for compatible gateways |
 | `OPENAI_TIMEOUT_SECONDS` | `60` | SDK request timeout |
 | `OPENAI_MAX_RETRIES` | `2` | SDK-managed retries |
+| `LANGSMITH_TRACING` | `false` | Enable LangGraph and model-call trace export |
+| `LANGSMITH_API_KEY` | unset | LangSmith credential; required only when tracing is enabled |
+| `LANGSMITH_PROJECT` | `rootpilot` | LangSmith tracing project name |
+| `LANGSMITH_ENDPOINT` | LangSmith US SaaS | Optional regional or self-hosted API endpoint |
+| `LANGSMITH_WORKSPACE_ID` | unset | Optional workspace selector for multi-workspace keys |
+| `LANGSMITH_HIDE_INPUTS` | `false` | Suppress trace input payloads |
+| `LANGSMITH_HIDE_OUTPUTS` | `false` | Suppress trace output payloads |
 | `AUTH_ENABLED` | `false` | Enable JWT enforcement; required in production |
 | `AUTH_JWT_SECRET` | unset | HS256 validation secret, minimum 32 chars |
 | `AUTH_JWT_ISSUER` | unset | Optional required issuer |
@@ -739,6 +763,7 @@ kubectl apply -f deploy/kubernetes/configmap.yaml
 kubectl create secret generic rootpilot-secrets --namespace rootpilot \
   --from-literal=POSTGRES_PASSWORD='...' \
   --from-literal=OPENAI_API_KEY='...' \
+  --from-literal=LANGSMITH_API_KEY='...' \
   --from-literal=AUTH_JWT_SECRET='...'
 kubectl apply -f deploy/kubernetes/migration-job.yaml
 kubectl wait --for=condition=complete job/rootpilot-migrate -n rootpilot --timeout=300s

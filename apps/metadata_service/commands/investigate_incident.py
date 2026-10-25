@@ -7,6 +7,9 @@ from apps.metadata_service.database import get_session_factory
 from apps.metadata_service.models.investigation_report import (
     InvestigationReport,
 )
+from apps.metadata_service.observability import (
+    flush_langsmith_traces,
+)
 from apps.metadata_service.schemas.assessment import (
     IncidentAssessment,
 )
@@ -351,6 +354,7 @@ async def investigate_incident(
         print(output)
     finally:
         await client.close()
+        flush_langsmith_traces(settings)
 
 
 def main() -> None:

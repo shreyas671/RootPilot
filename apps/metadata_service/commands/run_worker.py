@@ -17,6 +17,9 @@ from openai import (
 from apps.metadata_service.config import get_settings
 from apps.metadata_service.database import get_session_factory
 from apps.metadata_service.models.job import JobStatus
+from apps.metadata_service.observability import (
+    flush_langsmith_traces,
+)
 from apps.metadata_service.services.incident_loader import (
     load_incidents,
 )
@@ -315,6 +318,7 @@ async def run_worker(
                 return
     finally:
         await client.close()
+        flush_langsmith_traces(settings)
 
 
 def main() -> None:

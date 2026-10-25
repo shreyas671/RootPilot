@@ -72,11 +72,17 @@ origin will be `https://YOUR-PROJECT.vercel.app`.
    ```text
    DATABASE_URL=<the complete Neon connection string>
    OPENAI_API_KEY=<your private model-gateway key>
+   LANGSMITH_API_KEY=<your LangSmith API key>
    AUTH_JWT_SECRET=<the 64-character value generated above>
    CORS_ORIGINS=["https://YOUR-PROJECT.vercel.app"]
    ```
 
 5. Apply the Blueprint and wait for the deployment to become healthy.
+   LangSmith tracing remains disabled initially. After the service is healthy,
+   set `LANGSMITH_TRACING=true` in Render to begin exporting traces to the
+   `rootpilot-production` project. Use `LANGSMITH_HIDE_INPUTS=true` and/or
+   `LANGSMITH_HIDE_OUTPUTS=true` when incident evidence must not leave the
+   application payload.
 6. Copy the assigned API URL, for example:
 
    ```text

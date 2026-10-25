@@ -1,4 +1,48 @@
+from typing import Any
+
+from langsmith import traceable
 from openai import AsyncOpenAI
+
+
+def _trace_embedding_inputs(
+    inputs: dict[str, Any],
+) -> dict[str, object]:
+    texts = inputs.get("texts", [])
+    provider = inputs.get("self")
+
+    if not isinstance(texts, list):
+        texts = []
+
+    return {
+        "model": getattr(provider, "_model", "unknown"),
+        "text_count": len(texts),
+        "character_count": sum(
+            len(text)
+            for text in texts
+            if isinstance(text, str)
+        ),
+    }
+
+
+def _trace_embedding_outputs(
+    outputs: object,
+) -> dict[str, int]:
+    if not isinstance(outputs, list):
+        return {
+            "vector_count": 0,
+            "dimensions": 0,
+        }
+
+    first_vector = outputs[0] if outputs else []
+
+    return {
+        "vector_count": len(outputs),
+        "dimensions": (
+            len(first_vector)
+            if isinstance(first_vector, list)
+            else 0
+        ),
+    }
 
 
 class OpenAIEmbeddingProvider:
@@ -12,6 +56,13 @@ class OpenAIEmbeddingProvider:
         self._model = model
         self._dimensions = dimensions
 
+    @traceable(
+        name="rootpilot_embed_texts",
+        run_type="embedding",
+        process_inputs=_trace_embedding_inputs,
+        process_outputs=_trace_embedding_outputs,
+        tags=["rootpilot", "embedding"],
+    )
     async def embed_texts(
         self,
         texts: list[str],

@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     openai_timeout_seconds: float = 60.0
     openai_max_retries: int = 2
 
+    langsmith_tracing: bool = False
+    langsmith_api_key: SecretStr | None = None
+    langsmith_project: str = "rootpilot"
+    langsmith_endpoint: str | None = None
+    langsmith_workspace_id: str | None = None
+    langsmith_hide_inputs: bool = False
+    langsmith_hide_outputs: bool = False
+
     auth_enabled: bool = False
     auth_jwt_secret: SecretStr | None = None
     auth_jwt_algorithm: Literal["HS256"] = "HS256"
@@ -189,6 +197,20 @@ class Settings(BaseSettings):
         if self.openai_max_retries < 0:
             raise ValueError(
                 "OPENAI_MAX_RETRIES cannot be negative"
+            )
+
+        if not self.langsmith_project.strip():
+            raise ValueError(
+                "LANGSMITH_PROJECT cannot be empty"
+            )
+
+        if (
+            self.langsmith_tracing
+            and self.langsmith_api_key is None
+        ):
+            raise ValueError(
+                "LANGSMITH_API_KEY is required when "
+                "LANGSMITH_TRACING is enabled"
             )
 
         return self

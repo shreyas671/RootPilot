@@ -152,4 +152,6 @@ def build_investigation_graph(
         END,
     )
 
-    return graph_builder.compile()
+    return graph_builder.compile(
+        name="rootpilot_investigation",
+    )

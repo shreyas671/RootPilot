@@ -1,10 +1,12 @@
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import Request, Response
+from langsmith import run_trees
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
@@ -12,6 +14,8 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
+
+from apps.metadata_service.config import Settings
 
 REQUEST_COUNT = Counter(
     "rootpilot_http_requests_total",
@@ -28,6 +32,61 @@ REQUESTS_IN_PROGRESS = Gauge(
     "RootPilot HTTP requests currently executing",
     ("method",),
 )
+
+
+def configure_langsmith_tracing(
+    settings: Settings,
+) -> None:
+    environment_values = {
+        "LANGSMITH_TRACING": str(
+            settings.langsmith_tracing
+        ).lower(),
+        "LANGSMITH_PROJECT": settings.langsmith_project,
+        "LANGSMITH_HIDE_INPUTS": str(
+            settings.langsmith_hide_inputs
+        ).lower(),
+        "LANGSMITH_HIDE_OUTPUTS": str(
+            settings.langsmith_hide_outputs
+        ).lower(),
+    }
+
+    optional_values = {
+        "LANGSMITH_API_KEY": (
+            settings.langsmith_api_key.get_secret_value()
+            if settings.langsmith_api_key is not None
+            else None
+        ),
+        "LANGSMITH_ENDPOINT": settings.langsmith_endpoint,
+        "LANGSMITH_WORKSPACE_ID": (
+            settings.langsmith_workspace_id
+        ),
+    }
+
+    for name, value in environment_values.items():
+        os.environ[name] = value
+
+    for name, value in optional_values.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+def flush_langsmith_traces(
+    settings: Settings,
+    timeout_seconds: float = 5.0,
+) -> None:
+    if not getattr(settings, "langsmith_tracing", False):
+        return
+
+    try:
+        run_trees.get_cached_client().flush(
+            timeout=timeout_seconds,
+        )
+    except Exception:
+        logging.getLogger("rootpilot.langsmith").exception(
+            "langsmith_trace_flush_failed"
+        )
 
 
 class JsonFormatter(logging.Formatter):
