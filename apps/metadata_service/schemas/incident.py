@@ -35,6 +35,14 @@ class IncidentChange(EvidenceModel):
     description: str = Field(min_length=1)
 
 
+class ServiceHealthCheck(EvidenceModel):
+    service: str = Field(min_length=1)
+    reachable: bool
+    latency_ms: float = Field(ge=0.0)
+    check: str = Field(min_length=1)
+    observed_at: datetime
+
+
 class IncidentEvidence(EvidenceModel):
     incident_id: str = Field(
         min_length=1,
@@ -48,6 +56,9 @@ class IncidentEvidence(EvidenceModel):
     metrics: list[IncidentMetric] = Field(min_length=1)
     logs: list[IncidentLog] = Field(min_length=1)
     recent_changes: list[IncidentChange]
+    service_health: list[ServiceHealthCheck] = Field(
+        default_factory=list,
+    )
 
 
 class IncidentCatalogEntry(EvidenceModel):

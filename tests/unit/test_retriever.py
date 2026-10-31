@@ -121,3 +121,23 @@ async def test_retriever_returns_kafka_sections() -> None:
         result.section.runbook_id == "RB-KAFKA-001"
         for result in results
     )
+
+
+@pytest.mark.anyio
+async def test_retriever_supports_targeted_search() -> None:
+    embedding_provider = KeywordEmbeddingProvider()
+    retriever = await InMemoryRunbookRetriever.create(
+        embedding_provider=embedding_provider,
+        sections=load_runbooks(),
+    )
+
+    results = await retriever.search(
+        "postgres database connection pool exhaustion",
+        limit=2,
+    )
+
+    assert len(results) == 2
+    assert all(
+        result.section.runbook_id == "RB-DB-001"
+        for result in results
+    )

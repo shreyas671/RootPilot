@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -47,6 +48,14 @@ class InvestigationReport(Base):
         CheckConstraint(
             "retrieval_limit >= 1",
             name="retrieval_limit_positive",
+        ),
+        CheckConstraint(
+            "react_iterations >= 0",
+            name="react_iterations_nonnegative",
+        ),
+        CheckConstraint(
+            "react_tool_calls >= 0",
+            name="react_tool_calls_nonnegative",
         ),
     )
 
@@ -121,6 +130,38 @@ class InvestigationReport(Base):
         list[dict[str, object]]
     ] = mapped_column(
         JSONB,
+        nullable=False,
+    )
+    investigation_mode: Mapped[str] = mapped_column(
+        String(32),
+        default="single_pass",
+        server_default="single_pass",
+        nullable=False,
+    )
+    react_termination_reason: Mapped[str | None] = (
+        mapped_column(
+            String(64),
+            nullable=True,
+        )
+    )
+    react_iterations: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    react_tool_calls: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    react_trajectory: Mapped[
+        list[dict[str, object]]
+    ] = mapped_column(
+        JSONB,
+        default=list,
+        server_default=text("'[]'::jsonb"),
         nullable=False,
     )
     status: Mapped[InvestigationReportStatus] = mapped_column(

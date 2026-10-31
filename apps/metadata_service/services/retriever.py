@@ -62,6 +62,13 @@ class RunbookRetriever(Protocol):
     ) -> list[RetrievedRunbookSection]:
         ...
 
+    async def search(
+        self,
+        query: str,
+        limit: int = 3,
+    ) -> list[RetrievedRunbookSection]:
+        ...
+
 class InMemoryRunbookRetriever:
     def __init__(
         self,
@@ -117,11 +124,29 @@ class InMemoryRunbookRetriever:
                 "Retrieval limit must be at least 1"
             )
 
-        query = build_incident_query(incident)
+        return await self.search(
+            query=build_incident_query(incident),
+            limit=limit,
+        )
+
+    async def search(
+        self,
+        query: str,
+        limit: int = 3,
+    ) -> list[RetrievedRunbookSection]:
+        normalized_query = query.strip()
+
+        if not normalized_query:
+            raise ValueError("Search query cannot be empty")
+
+        if limit < 1:
+            raise ValueError(
+                "Retrieval limit must be at least 1"
+            )
 
         query_embeddings = (
             await self._embedding_provider.embed_texts(
-                [query]
+                [normalized_query]
             )
         )
 

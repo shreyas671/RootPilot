@@ -25,6 +25,14 @@ from apps.metadata_service.services.analyst import (
 from apps.metadata_service.services.investigation_graph import (
     build_investigation_graph,
 )
+from apps.metadata_service.services.react_agent import (
+    ReActAssessmentAnalyst,
+    ReActPlanner,
+)
+from apps.metadata_service.services.react_investigation_graph import (
+    ReActGraphConfig,
+    build_react_investigation_graph,
+)
 from apps.metadata_service.services.retriever import (
     RunbookRetriever,
 )
@@ -241,8 +249,25 @@ async def run_pipeline_evaluation(
     dataset: EvaluationDataset,
     incidents: Mapping[str, IncidentEvidence],
     retriever: RunbookRetriever,
-    analyst: IncidentAnalyst,
+    analyst: IncidentAnalyst | None = None,
+    react_planner: ReActPlanner | None = None,
+    react_analyst: ReActAssessmentAnalyst | None = None,
+    react_config: ReActGraphConfig | None = None,
 ) -> PipelineEvaluationSummary:
+    using_react = (
+        react_planner is not None
+        and react_analyst is not None
+    )
+    if (react_planner is None) != (react_analyst is None):
+        raise ValueError(
+            "react_planner and react_analyst must be provided "
+            "together"
+        )
+    if not using_react and analyst is None:
+        raise ValueError(
+            "analyst is required for single-pass evaluation"
+        )
+
     retrieval_summary = await evaluate_retrieval_cases(
         cases=dataset.retrieval_cases,
         incidents=incidents,
@@ -255,14 +280,25 @@ async def run_pipeline_evaluation(
             incidents,
             case.incident_id,
         )
-        graph = build_investigation_graph(
-            retriever=retriever,
-            analyst=analyst,
-            retrieval_limit=case.retrieval_limit,
-            minimum_relevance_score=(
-                case.minimum_relevance_score
-            ),
-        )
+        if using_react:
+            graph = build_react_investigation_graph(
+                retriever=retriever,
+                planner=react_planner,
+                analyst=react_analyst,
+                minimum_relevance_score=(
+                    case.minimum_relevance_score
+                ),
+                config=react_config,
+            )
+        else:
+            graph = build_investigation_graph(
+                retriever=retriever,
+                analyst=analyst,
+                retrieval_limit=case.retrieval_limit,
+                minimum_relevance_score=(
+                    case.minimum_relevance_score
+                ),
+            )
         try:
             result = await graph.ainvoke(
                 {

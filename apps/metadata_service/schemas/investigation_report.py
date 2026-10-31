@@ -18,6 +18,10 @@ from apps.metadata_service.schemas.assessment import (
     IncidentAssessment,
     NonEmptyText,
 )
+from apps.metadata_service.schemas.react import (
+    InvestigationStep,
+    ReactTerminationReason,
+)
 
 ReviewerName = Annotated[
     str,
@@ -65,6 +69,15 @@ class InvestigationProvenance(BaseModel):
     retrieved_sections: list[
         RetrievedSectionTrace
     ] = Field(default_factory=list)
+    investigation_mode: str = "single_pass"
+    react_termination_reason: (
+        ReactTerminationReason | None
+    ) = None
+    react_iterations: int = Field(default=0, ge=0)
+    react_tool_calls: int = Field(default=0, ge=0)
+    react_trajectory: list[InvestigationStep] = Field(
+        default_factory=list,
+    )
 
 
 class InvestigationReportCreate(BaseModel):
@@ -129,6 +142,15 @@ class InvestigationReportResponse(BaseModel):
     retrieval_limit: int
     minimum_relevance_score: float
     retrieved_sections: list[RetrievedSectionTrace]
+    investigation_mode: str = "single_pass"
+    react_termination_reason: (
+        ReactTerminationReason | None
+    ) = None
+    react_iterations: int = 0
+    react_tool_calls: int = 0
+    react_trajectory: list[InvestigationStep] = Field(
+        default_factory=list,
+    )
     status: InvestigationReportStatus
     reviewed_by: str | None
     reviewer_feedback: str | None

@@ -19,6 +19,9 @@ from apps.metadata_service.schemas.incident import (
 from apps.metadata_service.schemas.investigation import (
     InvestigationState,
 )
+from apps.metadata_service.schemas.react import (
+    InvestigationStep,
+)
 from apps.metadata_service.services.incident_loader import (
     load_incidents,
 )
@@ -194,6 +197,23 @@ async def test_execution_persists_validated_assessment() -> None:
             "incident": incident,
             "assessment": assessment,
             "assessment_validated": True,
+            "iteration_count": 1,
+            "tool_call_count": 1,
+            "termination_reason": "model_finished",
+            "react_steps": [
+                InvestigationStep(
+                    iteration=1,
+                    tool="query_metrics",
+                    hypothesis="The pool is exhausted.",
+                    rationale="Inspect pool usage.",
+                    arguments={"metric": "db_pool_waiters"},
+                    observation="46 requests are waiting.",
+                    evidence_ids=[
+                        "metric:checkout-api:db_pool_waiters"
+                    ],
+                    new_evidence_count=1,
+                )
+            ],
         },
         events=events,
     )
@@ -212,6 +232,7 @@ async def test_execution_persists_validated_assessment() -> None:
         incident=incident,
         workflow=workflow,
         session_factory=session_factory,
+        investigation_mode="react",
     )
 
     assert report is session.added_report
@@ -222,6 +243,13 @@ async def test_execution_persists_validated_assessment() -> None:
     assert job.status is JobStatus.COMPLETED
     assert job.started_at is not None
     assert session.committed is True
+    assert report.investigation_mode == "react"
+    assert report.react_termination_reason == "model_finished"
+    assert report.react_iterations == 1
+    assert report.react_tool_calls == 1
+    assert report.react_trajectory[0]["tool"] == (
+        "query_metrics"
+    )
 
     workflow_index = events.index("workflow")
     session_exit_index = events.index("session_exit")

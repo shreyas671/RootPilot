@@ -82,6 +82,19 @@ class Settings(BaseSettings):
     default_retrieval_limit: int = 3
     default_minimum_relevance_score: float = 0.0
 
+    investigation_mode: Literal[
+        "single_pass",
+        "react",
+    ] = "react"
+    react_max_iterations: int = 8
+    react_max_tool_calls: int = 10
+    react_no_progress_limit: int = 2
+    react_max_tool_errors: int = 3
+    react_max_runtime_seconds: float = 180.0
+    react_max_context_sections: int = 10
+    react_min_evidence_items: int = 2
+    react_max_repair_attempts: int = 2
+
     worker_poll_interval_seconds: float = 2.0
     worker_lease_seconds: int = 300
     worker_max_attempts: int = 3
@@ -176,6 +189,27 @@ class Settings(BaseSettings):
             "DEFAULT_RETRIEVAL_LIMIT": (
                 self.default_retrieval_limit
             ),
+            "REACT_MAX_ITERATIONS": (
+                self.react_max_iterations
+            ),
+            "REACT_MAX_TOOL_CALLS": (
+                self.react_max_tool_calls
+            ),
+            "REACT_NO_PROGRESS_LIMIT": (
+                self.react_no_progress_limit
+            ),
+            "REACT_MAX_TOOL_ERRORS": (
+                self.react_max_tool_errors
+            ),
+            "REACT_MAX_RUNTIME_SECONDS": (
+                self.react_max_runtime_seconds
+            ),
+            "REACT_MAX_CONTEXT_SECTIONS": (
+                self.react_max_context_sections
+            ),
+            "REACT_MIN_EVIDENCE_ITEMS": (
+                self.react_min_evidence_items
+            ),
             "WORKER_POLL_INTERVAL_SECONDS": (
                 self.worker_poll_interval_seconds
             ),
@@ -197,6 +231,11 @@ class Settings(BaseSettings):
         if self.openai_max_retries < 0:
             raise ValueError(
                 "OPENAI_MAX_RETRIES cannot be negative"
+            )
+
+        if self.react_max_repair_attempts < 0:
+            raise ValueError(
+                "REACT_MAX_REPAIR_ATTEMPTS cannot be negative"
             )
 
         if not self.langsmith_project.strip():

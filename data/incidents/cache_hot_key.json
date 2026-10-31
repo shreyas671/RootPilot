@@ -21,5 +21,8 @@
   ],
   "recent_changes": [
     {"timestamp": "2026-08-02T09:55:00Z", "description": "Homepage release began requesting the featured catalog key on every component render"}
+  ],
+  "service_health": [
+    {"service": "redis", "reachable": true, "latency_ms": 9, "check": "PING", "observed_at": "2026-08-02T10:15:20Z"}
   ]
 }

@@ -24,6 +24,18 @@ type RetrievalTrace = {
   source_file: string;
 };
 
+type ReActStep = {
+  iteration: number;
+  tool: string;
+  hypothesis: string;
+  rationale: string;
+  arguments: Record<string, unknown>;
+  observation: string;
+  evidence_ids: string[];
+  new_evidence_count: number;
+  is_error: boolean;
+};
+
 type Report = {
   id: string;
   job_id: string;
@@ -45,6 +57,11 @@ type Report = {
   retrieval_limit: number;
   minimum_relevance_score: number;
   retrieved_sections: RetrievalTrace[];
+  investigation_mode: string;
+  react_termination_reason: string | null;
+  react_iterations: number;
+  react_tool_calls: number;
+  react_trajectory: ReActStep[];
   created_at: string;
 };
 
@@ -264,8 +281,8 @@ export default function Home() {
           <p className="eyebrow">Operations command center</p>
           <h1>Move from incident signal<br />to grounded decision.</h1>
           <p className="hero-copy">
-            Queue investigations, inspect retrieved evidence, and keep every human
-            decision attributable from one focused workspace.
+            Queue ReAct investigations, inspect every diagnostic tool observation,
+            and keep each human decision attributable from one focused workspace.
           </p>
         </div>
         <form className="connection-card" onSubmit={(event) => { event.preventDefault(); void refresh(); }}>
@@ -327,7 +344,7 @@ export default function Home() {
             {jobs.slice(0, 8).map((job) => (
               <article className="job-row" key={job.id}>
                 <span className={`status-pill ${job.status}`}>{job.status}</span>
-                <div><strong>{job.incident_id ?? "Unassigned incident"}</strong><small>{job.id.slice(0, 8)} · attempt {job.attempt_count}/{job.max_attempts}</small></div>
+                <div><strong>{job.incident_id ?? "Unassigned incident"}</strong><small>{job.id.slice(0, 8)} · attempt {job.attempt_count}/{job.max_attempts}{job.error_message ? ` · ${job.error_message}` : ""}</small></div>
                 <time>{formatTime(job.created_at)}</time>
               </article>
             ))}
@@ -376,6 +393,27 @@ export default function Home() {
               <div><h3>Recommended actions</h3><ol>{selectedReport.recommended_actions.map((item) => <li key={item}>{item}</li>)}</ol></div>
             </section>
             <section><h3>Verification</h3><ol>{selectedReport.verification_steps.map((item) => <li key={item}>{item}</li>)}</ol></section>
+            {selectedReport.react_trajectory.length > 0 && (
+              <section>
+                <h3>ReAct investigation timeline</h3>
+                <div className="react-summary">
+                  <span>{selectedReport.react_iterations} reasoning cycles</span>
+                  <span>{selectedReport.react_tool_calls} tool calls</span>
+                  <span>Stopped: {(selectedReport.react_termination_reason ?? "completed").replaceAll("_", " ")}</span>
+                </div>
+                <ol className="react-timeline">
+                  {selectedReport.react_trajectory.map((step, index) => (
+                    <li className={step.is_error ? "react-step error" : "react-step"} key={`${step.iteration}-${step.tool}-${index}`}>
+                      <div><strong>{step.tool.replaceAll("_", " ")}</strong><span>Iteration {step.iteration}</span></div>
+                      <p><b>Hypothesis:</b> {step.hypothesis}</p>
+                      <p><b>Why:</b> {step.rationale}</p>
+                      <p><b>Observation:</b> {step.observation}</p>
+                      {step.evidence_ids.length > 0 && <small>{step.evidence_ids.join(" · ")}</small>}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
             <section>
               <h3>Retrieved evidence</h3>
               <div className="trace-list">
@@ -392,6 +430,7 @@ export default function Home() {
               <div><span>Embedding model</span><strong>{selectedReport.embedding_model}</strong></div>
               <div><span>Prompt</span><strong>{selectedReport.prompt_version}</strong></div>
               <div><span>Retriever</span><strong>{selectedReport.retrieval_backend} · top {selectedReport.retrieval_limit}</strong></div>
+              <div><span>Investigation</span><strong>{selectedReport.investigation_mode}</strong></div>
             </section>
             {selectedReport.status === "pending_review" ? (
               <section className="review-box">

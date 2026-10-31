@@ -85,6 +85,10 @@ def _trace_investigation_inputs(
             "minimum_relevance_score",
             0.0,
         ),
+        "investigation_mode": inputs.get(
+            "investigation_mode",
+            "single_pass",
+        ),
     }
 
 
@@ -107,6 +111,21 @@ def _trace_investigation_output(
                 "unknown",
             )
         ),
+        "investigation_mode": getattr(
+            output,
+            "investigation_mode",
+            "single_pass",
+        ),
+        "react_iterations": getattr(
+            output,
+            "react_iterations",
+            0,
+        ),
+        "react_tool_calls": getattr(
+            output,
+            "react_tool_calls",
+            0,
+        ),
     }
 
 
@@ -121,6 +140,7 @@ async def execute_and_persist_investigation(
     retrieval_backend: str = "memory",
     retrieval_limit: int = 3,
     minimum_relevance_score: float = 0.0,
+    investigation_mode: str = "single_pass",
 ) -> InvestigationReport:
     async with session_factory() as session:
         await start_investigation_job(
@@ -141,6 +161,7 @@ async def execute_and_persist_investigation(
         minimum_relevance_score=(
             minimum_relevance_score
         ),
+        investigation_mode=investigation_mode,
     )
 
 
@@ -162,6 +183,7 @@ async def execute_claimed_and_persist_investigation(
     retrieval_backend: str = "memory",
     retrieval_limit: int = 3,
     minimum_relevance_score: float = 0.0,
+    investigation_mode: str = "single_pass",
     mark_failure: bool = True,
 ) -> InvestigationReport:
 
@@ -246,6 +268,22 @@ async def execute_claimed_and_persist_investigation(
                 minimum_relevance_score
             ),
             retrieved_sections=traces,
+            investigation_mode=investigation_mode,
+            react_termination_reason=result.get(
+                "termination_reason"
+            ),
+            react_iterations=result.get(
+                "iteration_count",
+                0,
+            ),
+            react_tool_calls=result.get(
+                "tool_call_count",
+                0,
+            ),
+            react_trajectory=result.get(
+                "react_steps",
+                [],
+            ),
         ),
     )
 

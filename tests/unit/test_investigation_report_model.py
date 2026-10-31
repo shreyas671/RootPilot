@@ -34,6 +34,11 @@ def test_investigation_report_table_metadata() -> None:
         "retrieval_limit",
         "minimum_relevance_score",
         "retrieved_sections",
+        "investigation_mode",
+        "react_termination_reason",
+        "react_iterations",
+        "react_tool_calls",
+        "react_trajectory",
         "status",
         "reviewed_by",
         "reviewer_feedback",
@@ -78,6 +83,10 @@ def test_investigation_report_table_metadata() -> None:
         table.c.retrieved_sections.type,
         JSONB,
     )
+    assert isinstance(
+        table.c.react_trajectory.type,
+        JSONB,
+    )
 
     status_type = table.c.status.type
 
@@ -105,4 +114,6 @@ def test_investigation_report_table_metadata() -> None:
         "ck_investigation_reports_confidence_range",
         "ck_investigation_reports_minimum_relevance_score_range",
         "ck_investigation_reports_retrieval_limit_positive",
+        "ck_investigation_reports_react_iterations_nonnegative",
+        "ck_investigation_reports_react_tool_calls_nonnegative",
     }

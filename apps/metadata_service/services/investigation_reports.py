@@ -198,6 +198,16 @@ async def create_investigation_report(
             trace.model_dump()
             for trace in provenance.retrieved_sections
         ],
+        investigation_mode=provenance.investigation_mode,
+        react_termination_reason=(
+            provenance.react_termination_reason
+        ),
+        react_iterations=provenance.react_iterations,
+        react_tool_calls=provenance.react_tool_calls,
+        react_trajectory=[
+            step.model_dump(mode="json")
+            for step in provenance.react_trajectory
+        ],
         status=(
             InvestigationReportStatus.PENDING_REVIEW
         ),

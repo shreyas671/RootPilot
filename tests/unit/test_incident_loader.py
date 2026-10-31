@@ -44,6 +44,8 @@ def test_load_incident_parses_nested_evidence() -> None:
     assert incident.metrics[1].value == 20
     assert incident.logs[0].level == "ERROR"
     assert incident.recent_changes[0].timestamp.tzinfo is not None
+    assert incident.service_health[0].service == "postgres"
+    assert incident.service_health[0].reachable is True
 
 
 def test_load_incident_rejects_missing_fields(

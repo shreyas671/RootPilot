@@ -227,6 +227,21 @@ class PostgresRunbookRetriever:
         incident: IncidentEvidence,
         limit: int = 3,
     ) -> list[RetrievedRunbookSection]:
+        return await self.search(
+            query=build_incident_query(incident),
+            limit=limit,
+        )
+
+    async def search(
+        self,
+        query: str,
+        limit: int = 3,
+    ) -> list[RetrievedRunbookSection]:
+        normalized_query = query.strip()
+
+        if not normalized_query:
+            raise ValueError("Search query cannot be empty")
+
         if limit < 1:
             raise ValueError(
                 "Retrieval limit must be at least 1"
@@ -234,7 +249,7 @@ class PostgresRunbookRetriever:
 
         query_embeddings = (
             await self._embedding_provider.embed_texts(
-                [build_incident_query(incident)]
+                [normalized_query]
             )
         )
 

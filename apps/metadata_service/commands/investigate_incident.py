@@ -35,6 +35,14 @@ from apps.metadata_service.services.openai_client import (
 from apps.metadata_service.services.openai_embedding import (
     OpenAIEmbeddingProvider,
 )
+from apps.metadata_service.services.openai_react_agent import (
+    REACT_PROMPT_VERSION,
+    OpenAIReActAgent,
+)
+from apps.metadata_service.services.react_investigation_graph import (
+    ReActGraphConfig,
+    build_react_investigation_graph,
+)
 from apps.metadata_service.services.retriever_factory import (
     create_runbook_retriever,
 )
@@ -268,20 +276,67 @@ async def investigate_incident(
             sections=load_runbooks(),
         )
 
-        analyst = OpenAIIncidentAnalyst(
-            client=client,
-            model=settings.openai_analysis_model,
-            api=settings.openai_analysis_api,
+        investigation_mode = getattr(
+            settings,
+            "investigation_mode",
+            "single_pass",
         )
-
-        graph = build_investigation_graph(
-            retriever=retriever,
-            analyst=analyst,
-            retrieval_limit=retrieval_limit,
-            minimum_relevance_score=(
-                minimum_relevance_score
-            ),
-        )
+        if investigation_mode == "react":
+            react_agent = OpenAIReActAgent(
+                client=client,
+                model=settings.openai_analysis_model,
+                api=settings.openai_analysis_api,
+            )
+            graph = build_react_investigation_graph(
+                retriever=retriever,
+                planner=react_agent,
+                analyst=react_agent,
+                minimum_relevance_score=(
+                    minimum_relevance_score
+                ),
+                config=ReActGraphConfig(
+                    max_iterations=(
+                        settings.react_max_iterations
+                    ),
+                    max_tool_calls=(
+                        settings.react_max_tool_calls
+                    ),
+                    no_progress_limit=(
+                        settings.react_no_progress_limit
+                    ),
+                    max_tool_errors=(
+                        settings.react_max_tool_errors
+                    ),
+                    max_runtime_seconds=(
+                        settings.react_max_runtime_seconds
+                    ),
+                    max_context_sections=(
+                        settings.react_max_context_sections
+                    ),
+                    min_evidence_items=(
+                        settings.react_min_evidence_items
+                    ),
+                    max_repair_attempts=(
+                        settings.react_max_repair_attempts
+                    ),
+                ),
+            )
+            prompt_version = REACT_PROMPT_VERSION
+        else:
+            analyst = OpenAIIncidentAnalyst(
+                client=client,
+                model=settings.openai_analysis_model,
+                api=settings.openai_analysis_api,
+            )
+            graph = build_investigation_graph(
+                retriever=retriever,
+                analyst=analyst,
+                retrieval_limit=retrieval_limit,
+                minimum_relevance_score=(
+                    minimum_relevance_score
+                ),
+            )
+            prompt_version = INCIDENT_ANALYST_PROMPT_VERSION
 
         if job_id is not None:
             report = (
@@ -299,7 +354,7 @@ async def investigate_incident(
                         settings.openai_analysis_model
                     ),
                     prompt_version=(
-                        INCIDENT_ANALYST_PROMPT_VERSION
+                        prompt_version
                     ),
                     retrieval_backend=(
                         settings.retrieval_backend
@@ -308,6 +363,7 @@ async def investigate_incident(
                     minimum_relevance_score=(
                         minimum_relevance_score
                     ),
+                    investigation_mode=investigation_mode,
                 )
             )
 

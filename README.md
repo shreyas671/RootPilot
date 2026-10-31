@@ -7,7 +7,7 @@
 
 ![RootPilot — from incident signal to grounded decision](dashboard/public/og.png)
 
-RootPilot is an evidence-grounded incident investigation system. It validates incident evidence, retrieves relevant operational runbook sections from PostgreSQL/pgvector, generates a structured root-cause assessment through an OpenAI-compatible model gateway, rejects unsupported citations, persists complete provenance, and requires a human decision before an assessment is accepted.
+RootPilot is an evidence-grounded incident investigation system. Its bounded ReAct agent dynamically chooses read-only diagnostic tools, observes metrics, logs, deployments, health checks, and PostgreSQL/pgvector runbook results, revises its hypothesis, and stops only with grounded evidence or an explicit request for more evidence. RootPilot rejects unsupported citations, persists the complete investigation trajectory, and requires a human decision before an assessment is accepted.
 
 The repository includes the API, durable worker, persistent vector index, review and audit workflow, evaluation suite, operator dashboard, container image, Docker Compose topology, Kubernetes manifests, database migrations, and CI/image-publishing workflows.
 
@@ -20,6 +20,7 @@ The repository includes the API, durable worker, persistent vector index, review
 - [Quick start](#quick-start)
 - [System architecture](#system-architecture)
 - [End-to-end execution](#end-to-end-execution)
+- [ReAct investigation design](#react-investigation-design)
 - [Retrieval and RAG design](#retrieval-and-rag-design)
 - [Using the operator console](#using-the-operator-console)
 - [API](#api)
@@ -33,11 +34,12 @@ The repository includes the API, durable worker, persistent vector index, review
 During an incident, responders must correlate alerts, metrics, logs, deployments, and runbook knowledge under time pressure. An unconstrained chatbot can make this worse by producing a plausible but unsupported answer. RootPilot treats model output as a draft assessment inside a controlled evidence pipeline:
 
 1. Incident data must pass strict Pydantic validation.
-2. Only relevant runbook chunks are supplied to the analyst.
-3. The analyst must return a typed `IncidentAssessment`.
-4. The graph rejects an incident-ID mismatch or any citation that was not retrieved.
-5. The report records the models, prompt version, retrieval settings, source hashes, scores, and citations used.
-6. A human operator approves or rejects the report, and the decision is appended to an immutable audit history.
+2. The ReAct planner sees an evidence catalog, not hidden metric values or log contents.
+3. Every observation must come from an allowlisted, read-only diagnostic tool.
+4. The analyst must return a typed `IncidentAssessment` grounded in collected observations and retrieved runbooks.
+5. The graph rejects an incident-ID mismatch or any citation that was not retrieved.
+6. The report records tool calls, observations, stopping reason, models, prompt version, retrieval settings, source hashes, scores, and citations.
+7. A human operator approves or rejects the report, and the decision is appended to an immutable audit history.
 
 RootPilot never performs remediation against production infrastructure. Its output is a reviewable investigation artifact, not an autonomous change.
 
@@ -51,10 +53,11 @@ RootPilot never performs remediation against production infrastructure. Its outp
 | Development retrieval | Complete | Deterministic in-memory cosine search |
 | Production retrieval | Complete | PostgreSQL `vector(1536)` storage and HNSW cosine index |
 | Incremental indexing | Complete | Content/model hashes avoid re-embedding unchanged chunks |
-| Investigation workflow | Complete | Typed LangGraph retrieve → analyze → validate graph |
-| Grounding controls | Complete | Relevance floor, incident-ID check, retrieved-citation allowlist |
+| ReAct investigation | Complete | Bounded reason → act → observe loop with dynamic read-only tool selection |
+| Diagnostic tools | Complete | Metrics, logs, deployments, allowlisted health checks, runbooks, and additional-evidence requests |
+| Grounding controls | Complete | Evidence-ID checks, relevance floor, incident-ID check, retrieved-citation allowlist |
 | Durable execution | Complete | PostgreSQL queue with row locks, leases, heartbeats, retries, and exhaustion handling |
-| Report persistence | Complete | One structured report per job with retrieval/model provenance |
+| Report persistence | Complete | One structured report per job with ReAct trajectory and retrieval/model provenance |
 | Human review | Complete | One-time approve/reject transition with required rejection feedback |
 | Audit history | Complete | Immutable review events |
 | Authentication/RBAC | Complete | JWT bearer auth with viewer, operator, and admin roles |
@@ -93,6 +96,8 @@ OPENAI_BASE_URL=https://your-private-gateway.example/v1
 OPENAI_EMBEDDING_MODEL=your-embedding-model
 OPENAI_ANALYSIS_MODEL=your-analysis-model
 OPENAI_ANALYSIS_API=chat_completions
+
+INVESTIGATION_MODE=react
 
 CORS_ORIGINS=["http://localhost:3000"]
 AUTH_ENABLED=false
@@ -148,12 +153,13 @@ flowchart LR
         API[FastAPI API]
         AUTH[JWT and RBAC]
         WORKER[Durable worker pool]
-        GRAPH[LangGraph investigation]
+        GRAPH[LangGraph ReAct investigation]
+        TOOLS[Read-only diagnostic tools]
         EVAL[Evaluation runner]
     end
 
     subgraph Knowledge[Evidence and knowledge]
-        INCIDENTS[Incident JSON catalog]
+        INCIDENTS[Incident evidence provider]
         RUNBOOKS[Markdown runbooks]
         CHUNKS[Section chunker and citation builder]
         EMBED[OpenAI-compatible embeddings]
@@ -187,6 +193,9 @@ flowchart LR
     CHUNKS --> EMBED
     EMBED --> VECTORS
     WORKER --> GRAPH
+    GRAPH --> TOOLS
+    TOOLS --> INCIDENTS
+    TOOLS --> VECTORS
     GRAPH --> VECTORS
     GRAPH --> ANALYST
     ANALYST --> REPORTS
@@ -210,7 +219,10 @@ flowchart LR
 | Worker | `python -m apps.metadata_service.commands.run_worker` | Claims jobs, renews leases, runs investigations, retries transient failures, persists results |
 | Retriever factory | `services/retriever_factory.py` | Selects in-memory or PostgreSQL retrieval from typed configuration |
 | PostgreSQL retriever | `services/postgres_retriever.py` | Incremental runbook indexing and database-side cosine ranking |
-| Investigation graph | `services/investigation_graph.py` | Evidence retrieval, relevance filtering, structured analysis, grounding validation |
+| ReAct graph | `services/react_investigation_graph.py` | Bounded reason, action, observation, stopping, synthesis, repair, and validation loop |
+| Diagnostic toolkit | `services/diagnostic_tools.py` | Read-only metrics, logs, deployments, health, and targeted runbook tools |
+| ReAct model adapter | `services/openai_react_agent.py` | Provider-compatible structured decisions and grounded final assessment |
+| Legacy graph | `services/investigation_graph.py` | Rollback-compatible single-pass retrieve, analyze, and validate workflow |
 | Execution coordinator | `services/investigation_execution.py` | Keeps model calls outside DB transactions and persists terminal state |
 | LangSmith instrumentation | `observability.py`, traced services | Opt-in graph, embedding, model-call, latency, error, and correlation traces |
 | Review service | `services/investigation_reports.py` | Locked state transitions and immutable audit-event creation |
@@ -245,12 +257,21 @@ sequenceDiagram
         W->>DB: Renew owned lease
     end
 
-    W->>O: Embed incident query
-    W->>V: Cosine top-K search
-    V-->>W: Ranked runbook sections
-    W->>O: Structured assessment request
+    loop Until grounded or a stopping condition is reached
+        W->>O: Request one structured ReAct decision
+        O-->>W: Selected read-only action
+        alt Metric, log, deployment, or health action
+            W->>W: Query validated incident evidence provider
+        else Targeted runbook search
+            W->>O: Embed agent-selected query
+            W->>V: Cosine top-K search
+            V-->>W: Ranked runbook sections
+        end
+        W->>W: Record observation and revise investigation state
+    end
+    W->>O: Request grounded structured assessment
     O-->>W: IncidentAssessment
-    W->>W: Validate incident ID and citation allowlist
+    W->>W: Validate evidence threshold, incident ID, and citation allowlist
 
     alt Valid assessment
         W->>DB: Insert report and provenance, then complete job
@@ -261,7 +282,7 @@ sequenceDiagram
     end
 
     opt LangSmith tracing enabled
-        W-->>LS: Export graph, retrieval, model, and error spans
+        W-->>LS: Export ReAct, tool, retrieval, model, and error spans
     end
 
     UI->>API: GET /jobs and /investigation-reports
@@ -286,6 +307,55 @@ The queue is intentionally implemented in PostgreSQL so job state and report sta
 
 Delivery is at least once. Report uniqueness (`job_id`) and active lease ownership provide the idempotency boundary for successful persistence.
 
+## ReAct investigation design
+
+The default `react` mode is an actual iterative tool-using workflow, not merely a model call with a higher reasoning-effort setting. The planner initially receives the incident identity, title, service, summary, symptoms, available metric names, allowlisted health-service names, and remaining budgets. Metric values, log messages, health outcomes, and deployment details become visible only after the model selects the corresponding tool.
+
+```mermaid
+flowchart TD
+    START[Validated incident alert] --> PLAN[Form or revise hypothesis]
+    PLAN --> ACTION{Choose one structured action}
+    ACTION -->|query_metrics| METRIC[Read metric evidence]
+    ACTION -->|search_logs| LOG[Search bounded logs]
+    ACTION -->|get_recent_deployments| CHANGE[Read recent changes]
+    ACTION -->|check_service_health| HEALTH[Read allowlisted health result]
+    ACTION -->|search_runbooks| RUNBOOK[Targeted pgvector search]
+    METRIC --> OBSERVE[Record structured observation]
+    LOG --> OBSERVE
+    CHANGE --> OBSERVE
+    HEALTH --> OBSERVE
+    RUNBOOK --> OBSERVE
+    OBSERVE --> STOP{Enough grounded evidence?}
+    STOP -->|No| PLAN
+    ACTION -->|request_additional_evidence| MISSING[Stop with missing evidence]
+    ACTION -->|finalize_assessment| GATE[Validate evidence threshold]
+    STOP -->|Budget reached with evidence| GATE
+    GATE --> SYNTHESIZE[Generate structured assessment]
+    SYNTHESIZE --> VALIDATE{Validate ID and citations}
+    VALIDATE -->|Repairable| SYNTHESIZE
+    VALIDATE -->|Valid| REVIEW[Persist pending human review]
+```
+
+### Read-only action set
+
+| Action | Purpose | Safety boundary |
+|---|---|---|
+| `query_metrics` | Read one named metric for the incident service and bounded time range | Metric names come from the validated evidence catalog |
+| `search_logs` | Search timestamped incident logs using a bounded pattern and result count | No arbitrary log backend query language is accepted |
+| `get_recent_deployments` | Read recent deployments or operational changes | Read-only incident evidence |
+| `check_service_health` | Read a recorded health result for a registered service | Service names are allowlisted; the model cannot supply a URL or SQL statement |
+| `search_runbooks` | Execute a targeted semantic query against the existing RAG index | Top-K and relevance thresholds remain server controlled |
+| `request_additional_evidence` | Stop and identify evidence that current tools cannot obtain | Prevents an unsupported RCA |
+| `finalize_assessment` | Submit observed evidence IDs for deterministic gating | The server rejects unknown evidence IDs or insufficient context |
+
+The bundled provider maps these tools to the synthetic incident JSON fixtures, which makes the behavior deterministic and testable locally. The tool boundary is deliberately separate from the planner so production adapters can later connect the same actions to Prometheus, a log platform, deployment metadata, or Kubernetes without changing graph policy. No live monitoring integration is claimed until its endpoint and credentials are configured.
+
+### Stopping conditions
+
+The loop stops when the model successfully finalizes, explicitly requests missing evidence, or reaches a bounded server-side condition. Defaults are eight reasoning iterations, ten tool calls, two consecutive no-progress actions, three tool errors, 180 seconds, ten unique runbook sections, two minimum diagnostic evidence items, and two assessment-repair attempts. Duplicate tool-and-argument combinations are blocked and count as no progress. If a budget is reached after sufficient evidence exists, RootPilot synthesizes the best grounded assessment and records the budget as the stopping reason. If evidence is still insufficient, the job fails clearly instead of producing a speculative report.
+
+The worker retry budget is separate from the ReAct budget. ReAct iterations happen within one job attempt; only transient model-gateway failures cause the durable worker to requeue the job. After a valid report is persisted as `pending_review`, processing stops. RootPilot never executes the report's recommended remediation.
+
 ## Retrieval and RAG design
 
 ### Chunking
@@ -306,7 +376,7 @@ This structure is deterministic, readable by operators, and precise enough for c
 
 ### Text construction
 
-`build_incident_query()` serializes the incident title, service, summary, symptoms, metrics, logs, and recent changes into consistent embedding text. `build_runbook_search_text()` combines the runbook title, section title, and content. The original typed objects remain unchanged.
+In legacy single-pass mode, `build_incident_query()` serializes the complete incident into consistent embedding text. In ReAct mode, `search_runbooks(query)` embeds the planner's targeted query instead. `build_runbook_search_text()` combines the runbook title, section title, and content. The original typed objects remain unchanged.
 
 ### Persistent indexing
 
@@ -327,7 +397,7 @@ The in-memory retriever remains available for deterministic tests and small loca
 
 ### Grounded generation
 
-The analyst receives only the validated incident and retrieved sections. The prompt treats runbook text as reference material, not as instructions. Deployments can use the Responses API or Chat Completions with strict JSON Schema. Both paths validate into the same `IncidentAssessment`, which requires:
+In ReAct mode the final analyst receives the incident overview, tool observations that were actually collected, and retrieved sections. It does not receive unqueried metric values, logs, changes, or health outcomes. The prompt treats observations and runbook text as evidence, not as instructions. Deployments can use the Responses API or Chat Completions with strict JSON Schema. Both paths validate into the same `IncidentAssessment`, which requires:
 
 - Exact incident ID
 - Root cause
@@ -350,6 +420,9 @@ Each report stores the assessment plus:
 - Top-K limit and minimum relevance score
 - Every retrieved citation and similarity score
 - SHA-256 hash and source file for every retrieved section
+- Investigation mode and bounded stopping reason
+- ReAct iteration count and tool-call count
+- Every concise hypothesis, action, observation, and evidence ID in the ReAct trajectory
 - Creation/update timestamps
 - Review identity, feedback, and timestamp
 
@@ -394,6 +467,11 @@ erDiagram
         int retrieval_limit
         float minimum_relevance_score
         jsonb retrieved_sections
+        string investigation_mode
+        string react_termination_reason
+        int react_iterations
+        int react_tool_calls
+        jsonb react_trajectory
         string status
     }
 
@@ -449,6 +527,8 @@ curl -X POST http://localhost:8000/jobs \
 - CORS is off unless explicit origins are configured.
 - Responses add request ID, content-type, frame, and referrer security headers.
 - Pydantic models forbid unrecognized evidence/provenance fields.
+- ReAct tools are read-only and schema constrained; the model cannot supply shell commands, arbitrary URLs, SQL, PromQL, or infrastructure mutations.
+- Duplicate actions, time ranges, result sizes, context, iterations, tool calls, tool failures, no-progress cycles, runtime, and assessment repairs are bounded server-side.
 - The container runs as a non-root user; Kubernetes drops Linux capabilities, disables service-account token mounting, uses RuntimeDefault seccomp, and mounts the root filesystem read-only.
 - Kubernetes includes ingress restrictions and a default-deny ingress policy.
 
@@ -458,7 +538,7 @@ JWT issuance belongs to the deploying identity system. RootPilot validates token
 
 Application logs are JSON objects containing UTC timestamp, level, logger, event message, and relevant request/job/incident context. Incoming `X-Request-ID` is preserved (bounded to 128 characters); otherwise RootPilot creates one and returns it in the response.
 
-[LangSmith](https://docs.langchain.com/langsmith/observability-quickstart) tracing is opt-in. When enabled, RootPilot records the named LangGraph investigation, retrieval and validation nodes, redacted embedding-call summaries, OpenAI-compatible model calls, execution latency, errors, and job/incident correlation metadata. Short-lived CLI processes flush pending traces before exiting.
+[LangSmith](https://docs.langchain.com/langsmith/observability-quickstart) tracing is opt-in. When enabled, RootPilot records the named LangGraph ReAct investigation, individual read-only tool calls, retrieval and validation nodes, redacted embedding-call summaries, OpenAI-compatible model calls, execution latency, errors, and job/incident correlation metadata. Short-lived CLI processes flush pending traces before exiting.
 
 Create a LangSmith API key, then add the following only to the runtime environment (never to Git):
 
@@ -487,6 +567,9 @@ apps/metadata_service/
   models/              SQLAlchemy tables
   schemas/             Pydantic trust-boundary models
   services/            loaders, RAG, graph, queue, reports, evaluation
+    diagnostic_tools.py          read-only ReAct tool executor
+    openai_react_agent.py        structured planner and final analyst
+    react_investigation_graph.py bounded iterative LangGraph
   config.py            typed environment configuration
   database.py          async engine and sessions
   observability.py     logs, request middleware, Prometheus, LangSmith setup
@@ -582,13 +665,14 @@ The dashboard is an investigation and human-review console; it does not execute 
 1. Choose one of the five prepared incidents.
 2. Select **Queue investigation**.
 3. The PostgreSQL worker claims the job and indexes changed runbook sections.
-4. pgvector retrieves the most similar sections.
-5. The configured analysis model generates a schema-constrained assessment.
-6. LangGraph validates the incident ID and citation allowlist.
-7. The completed report appears in **Grounded assessments**.
-8. Open it to inspect the root cause, supporting evidence, recommended actions, verification steps, retrieved citations/scores, and model provenance.
-9. Select **Approve RCA**, or provide feedback and select **Reject assessment**.
-10. The review transition is persisted once and appended to the audit history.
+4. The ReAct planner dynamically queries metrics, logs, deployments, health evidence, and targeted runbook context.
+5. Each observation is deduplicated and checked against iteration, tool, progress, context, and runtime budgets.
+6. The configured analysis model generates a schema-constrained assessment from collected observations only.
+7. LangGraph validates the evidence threshold, incident ID, and citation allowlist.
+8. The completed report appears in **Grounded assessments**.
+9. Open it to inspect the full ReAct timeline, stopping reason, root cause, evidence, actions, verification steps, citations/scores, and model provenance.
+10. Select **Approve RCA**, or provide feedback and select **Reject assessment**.
+11. The review transition is persisted once and appended to the audit history.
 
 `completed` means the investigation report was generated successfully. It does **not** mean RootPilot changed or repaired the affected infrastructure.
 
@@ -645,7 +729,7 @@ uv run python -m apps.metadata_service.commands.evaluate_pipeline \
   --minimum-assessment-pass-rate 1.0
 ```
 
-The evaluation command prints machine-readable JSON and exits non-zero when either configured pass-rate threshold is missed.
+The evaluation command uses the configured `INVESTIGATION_MODE`, prints machine-readable JSON, and exits non-zero when either configured pass-rate threshold is missed. In ReAct mode it evaluates the same iterative graph and tool policy used by the worker; `single_pass` remains available for baseline comparisons.
 
 ## Configuration
 
@@ -684,6 +768,15 @@ The evaluation command prints machine-readable JSON and exits non-zero when eith
 | `EMBEDDING_DIMENSIONS` | `1536` | Fixed pgvector storage dimension; shorter gateway vectors are zero-padded without changing cosine similarity |
 | `DEFAULT_RETRIEVAL_LIMIT` | `3` | Worker top-K |
 | `DEFAULT_MINIMUM_RELEVANCE_SCORE` | `0.0` | Worker relevance floor |
+| `INVESTIGATION_MODE` | `react` | `react` for iterative tools or `single_pass` for rollback compatibility |
+| `REACT_MAX_ITERATIONS` | `8` | Maximum reason/action cycles |
+| `REACT_MAX_TOOL_CALLS` | `10` | Maximum executed diagnostic tools |
+| `REACT_NO_PROGRESS_LIMIT` | `2` | Consecutive actions with no new evidence before stopping |
+| `REACT_MAX_TOOL_ERRORS` | `3` | Maximum bounded tool errors |
+| `REACT_MAX_RUNTIME_SECONDS` | `180` | Wall-clock investigation budget |
+| `REACT_MAX_CONTEXT_SECTIONS` | `10` | Maximum unique runbook sections retained |
+| `REACT_MIN_EVIDENCE_ITEMS` | `2` | Diagnostic evidence required before synthesis |
+| `REACT_MAX_REPAIR_ATTEMPTS` | `2` | Corrections allowed after deterministic validation feedback |
 | `WORKER_POLL_INTERVAL_SECONDS` | `2` | Empty-queue polling interval |
 | `WORKER_LEASE_SECONDS` | `300` | Claim lease duration |
 | `WORKER_MAX_ATTEMPTS` | `3` | Default bounded attempts |
@@ -723,7 +816,7 @@ npm run lint
 npm test
 ```
 
-The test suite covers validation, loaders, chunking, embeddings, cosine ranking, pgvector indexing/querying, LangGraph routing and citation rejection, queue leases/retries, report provenance, review locking/auditing, JWT roles, API contracts, metrics/security headers, migrations, and the rendered dashboard.
+The test suite covers validation, loaders, chunking, embeddings, cosine ranking, targeted pgvector queries, every diagnostic tool, ReAct routing/stopping/duplicate handling/assessment repair, citation rejection, queue leases/retries, trajectory persistence, review locking/auditing, JWT roles, API contracts, metrics/security headers, migrations, and the rendered dashboard.
 
 ## Production deployment
 
@@ -798,7 +891,7 @@ The built-in labeled corpus covers:
 - TLS certificate expiration
 - Worker memory leaks and Kubernetes OOM restarts
 
-Retrieval evaluation calculates recall@K, reciprocal rank, and pass rate. Assessment evaluation checks exact incident identity, citation grounding, expected citation recall, required root-cause/action terminology, confidence threshold, and graph rejection errors.
+Retrieval evaluation calculates recall@K, reciprocal rank, and pass rate. Assessment evaluation checks exact incident identity, citation grounding, expected citation recall, required root-cause/action terminology, confidence threshold, and graph rejection errors. With `INVESTIGATION_MODE=react`, the assessment cases also exercise dynamic diagnostic actions and bounded stopping before applying the same quality metrics.
 
 These synthetic cases are regression protection, not a substitute for organization-specific historical incidents. Before rollout, add representative internal incidents/runbooks and calibrate relevance and confidence thresholds against them.
 
@@ -814,7 +907,9 @@ The following rules are deliberate and should remain true as the project evolves
 6. Retry counts are bounded and exhausted jobs become terminal.
 7. A persisted report must have passed graph validation.
 8. Every cited section must have been retrieved for that run.
-9. Model, prompt, retrieval, score, source, and content-hash provenance is retained.
-10. Human review is explicit, one-time, attributable, and auditable.
-11. Production startup fails closed when required security/topology settings are missing.
-12. External rollout values are supplied by the deployment environment, never hard-coded into application code.
+9. Every ReAct action is read-only, typed, allowlisted, and bounded.
+10. The final analyst sees only observations collected through tools, not hidden fixture values.
+11. Model, prompt, tool trajectory, stopping reason, retrieval, score, source, and content-hash provenance is retained.
+12. Human review is explicit, one-time, attributable, and auditable.
+13. Production startup fails closed when required security/topology settings are missing.
+14. External rollout values are supplied by the deployment environment, never hard-coded into application code.

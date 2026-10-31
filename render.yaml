@@ -78,6 +78,24 @@ envVarGroups:
         value: "3"
       - key: DEFAULT_MINIMUM_RELEVANCE_SCORE
         value: "0.0"
+      - key: INVESTIGATION_MODE
+        value: react
+      - key: REACT_MAX_ITERATIONS
+        value: "8"
+      - key: REACT_MAX_TOOL_CALLS
+        value: "10"
+      - key: REACT_NO_PROGRESS_LIMIT
+        value: "2"
+      - key: REACT_MAX_TOOL_ERRORS
+        value: "3"
+      - key: REACT_MAX_RUNTIME_SECONDS
+        value: "180"
+      - key: REACT_MAX_CONTEXT_SECTIONS
+        value: "10"
+      - key: REACT_MIN_EVIDENCE_ITEMS
+        value: "2"
+      - key: REACT_MAX_REPAIR_ATTEMPTS
+        value: "2"
       - key: DATABASE_POOL_SIZE
         value: "2"
       - key: DATABASE_MAX_OVERFLOW

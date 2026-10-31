@@ -58,5 +58,14 @@
       "timestamp": "2026-07-25T09:02:00Z",
       "description": "A partner producer began publishing version 3 order events"
     }
+  ],
+  "service_health": [
+    {
+      "service": "kafka",
+      "reachable": true,
+      "latency_ms": 11,
+      "check": "broker metadata request",
+      "observed_at": "2026-07-25T09:15:20Z"
+    }
   ]
 }

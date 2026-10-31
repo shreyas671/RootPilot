@@ -96,9 +96,17 @@ https://YOUR-API.onrender.com/health
 https://YOUR-API.onrender.com/ready
 ```
 
-The container start command runs `alembic upgrade head` before Uvicorn. The
-FastAPI lifespan then starts the queue worker inside the same process. One free
-web instance therefore serves requests and processes queued investigations.
+The container start command runs `alembic upgrade head` before Uvicorn,
+including the ReAct trajectory-provenance migration. The FastAPI lifespan then
+starts the queue worker inside the same process. One free web instance therefore
+serves requests and processes queued investigations. The Blueprint enables
+`INVESTIGATION_MODE=react`; set it to `single_pass` only when a rollback is
+required.
+
+A ReAct investigation makes multiple analysis-model calls—one per decision plus
+the final assessment—and may make multiple embedding calls for targeted runbook
+queries. Confirm that the private gateway quota can support the bounded values
+in `REACT_MAX_ITERATIONS` and `REACT_MAX_TOOL_CALLS`.
 
 ## 4. Create the Vercel frontend
 
@@ -150,7 +158,8 @@ Roles are hierarchical:
 3. Queue one prepared incident.
 4. Keep the dashboard/API active while the embedded worker processes the job.
 5. Refresh the dashboard and open the completed report.
-6. Inspect citations, retrieval scores, and model/retrieval provenance.
+6. Inspect the ReAct tool timeline, stopping reason, citations, retrieval
+   scores, and model/retrieval provenance.
 7. Approve the report, or reject it with feedback.
 8. Reopen it and verify the immutable review event.
 

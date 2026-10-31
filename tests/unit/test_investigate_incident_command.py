@@ -325,6 +325,7 @@ async def test_persisted_command_executes_workflow(
         "retrieval_backend": "memory",
         "retrieval_limit": 4,
         "minimum_relevance_score": 0.25,
+            "investigation_mode": "single_pass",
     }
     assert client.closed is True
 

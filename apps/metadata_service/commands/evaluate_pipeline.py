@@ -28,6 +28,12 @@ from apps.metadata_service.services.openai_client import (
 from apps.metadata_service.services.openai_embedding import (
     OpenAIEmbeddingProvider,
 )
+from apps.metadata_service.services.openai_react_agent import (
+    OpenAIReActAgent,
+)
+from apps.metadata_service.services.react_investigation_graph import (
+    ReActGraphConfig,
+)
 from apps.metadata_service.services.retriever_factory import (
     create_runbook_retriever,
 )
@@ -95,16 +101,56 @@ async def evaluate_pipeline(
             embedding_provider=embedding_provider,
             sections=load_runbooks(),
         )
-        analyst = OpenAIIncidentAnalyst(
-            client=client,
-            model=settings.openai_analysis_model,
-            api=settings.openai_analysis_api,
-        )
+        evaluation_options: dict[str, object]
+        if settings.investigation_mode == "react":
+            react_agent = OpenAIReActAgent(
+                client=client,
+                model=settings.openai_analysis_model,
+                api=settings.openai_analysis_api,
+            )
+            evaluation_options = {
+                "react_planner": react_agent,
+                "react_analyst": react_agent,
+                "react_config": ReActGraphConfig(
+                    max_iterations=(
+                        settings.react_max_iterations
+                    ),
+                    max_tool_calls=(
+                        settings.react_max_tool_calls
+                    ),
+                    no_progress_limit=(
+                        settings.react_no_progress_limit
+                    ),
+                    max_tool_errors=(
+                        settings.react_max_tool_errors
+                    ),
+                    max_runtime_seconds=(
+                        settings.react_max_runtime_seconds
+                    ),
+                    max_context_sections=(
+                        settings.react_max_context_sections
+                    ),
+                    min_evidence_items=(
+                        settings.react_min_evidence_items
+                    ),
+                    max_repair_attempts=(
+                        settings.react_max_repair_attempts
+                    ),
+                ),
+            }
+        else:
+            evaluation_options = {
+                "analyst": OpenAIIncidentAnalyst(
+                    client=client,
+                    model=settings.openai_analysis_model,
+                    api=settings.openai_analysis_api,
+                )
+            }
         summary = await run_pipeline_evaluation(
             dataset=dataset,
             incidents=incidents,
             retriever=retriever,
-            analyst=analyst,
+            **evaluation_options,
         )
 
         print(summary.model_dump_json(indent=2))

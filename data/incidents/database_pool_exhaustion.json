@@ -58,5 +58,14 @@
       "timestamp": "2026-07-21T14:04:00Z",
       "description": "Deployed checkout-api v1.14.0 with updated order-history transaction handling"
     }
+  ],
+  "service_health": [
+    {
+      "service": "postgres",
+      "reachable": true,
+      "latency_ms": 18,
+      "check": "SELECT 1",
+      "observed_at": "2026-07-21T14:33:02Z"
+    }
   ]
 }

@@ -18,5 +18,8 @@
     {"timestamp": "2026-08-10T00:02:03Z", "level": "ERROR", "message": "x509: certificate has expired or is not yet valid"},
     {"timestamp": "2026-08-10T00:02:07Z", "level": "INFO", "message": "Gateway process health check succeeded"}
   ],
-  "recent_changes": []
+  "recent_changes": [],
+  "service_health": [
+    {"service": "webhook-gateway", "reachable": true, "latency_ms": 6, "check": "internal readiness probe", "observed_at": "2026-08-10T00:02:07Z"}
+  ]
 }
