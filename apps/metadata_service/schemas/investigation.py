@@ -33,6 +33,7 @@ class InvestigationState(TypedDict):
     tool_call_count: NotRequired[int]
     tool_error_count: NotRequired[int]
     no_progress_count: NotRequired[int]
+    duplicate_action_count: NotRequired[int]
     assessment_repair_count: NotRequired[int]
     validation_error: NotRequired[str | None]
     assessment_generation_failed: NotRequired[bool]

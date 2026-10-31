@@ -24,6 +24,8 @@ class ReActPlanner(Protocol):
         observations: list[ToolObservation],
         remaining_iterations: int,
         remaining_tool_calls: int,
+        minimum_evidence_items: int,
+        requires_runbook_context: bool,
     ) -> ReactDecision:
         ...
 

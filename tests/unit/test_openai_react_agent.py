@@ -62,6 +62,8 @@ async def test_chat_planner_returns_structured_action() -> None:
         observations=[],
         remaining_iterations=8,
         remaining_tool_calls=10,
+        minimum_evidence_items=2,
+        requires_runbook_context=True,
     )
 
     assert decision == expected
@@ -80,6 +82,10 @@ async def test_chat_planner_returns_structured_action() -> None:
     assert "metrics" not in payload["incident"]
     assert "logs" not in payload["incident"]
     assert "recent_changes" not in payload["incident"]
+    assert payload["grounding_requirements"] == {
+        "minimum_diagnostic_evidence_items": 2,
+        "requires_runbook_context": True,
+    }
 
 
 @pytest.mark.anyio

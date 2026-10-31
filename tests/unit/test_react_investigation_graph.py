@@ -9,10 +9,13 @@ from apps.metadata_service.schemas.incident import (
     IncidentEvidence,
 )
 from apps.metadata_service.schemas.react import (
+    CheckServiceHealthAction,
     FinalizeAssessmentAction,
+    GetRecentDeploymentsAction,
     QueryMetricsAction,
     ReactDecision,
     RequestAdditionalEvidenceAction,
+    SearchLogsAction,
     SearchRunbooksAction,
 )
 from apps.metadata_service.schemas.retrieval import (
@@ -274,6 +277,109 @@ async def test_react_graph_finalizes_at_iteration_limit() -> None:
     assert result["assessment_validated"] is True
     assert result["termination_reason"] == "max_iterations"
     assert result["tool_call_count"] == 3
+
+
+@pytest.mark.anyio
+async def test_react_explores_other_tools_after_empty_results() -> None:
+    tls_incident = load_incidents()["INC-TLS-001"]
+    tls_section = next(
+        section
+        for section in load_runbooks()
+        if section.citation_id == "RB-TLS-001#signals"
+    )
+    metric_id = (
+        "metric:webhook-gateway:certificate_days_remaining"
+    )
+    decisions = [
+        decision(
+            GetRecentDeploymentsAction(
+                tool="get_recent_deployments",
+                service="webhook-gateway",
+                time_range="2h",
+            )
+        ),
+        decision(
+            SearchLogsAction(
+                tool="search_logs",
+                service="webhook-gateway",
+                pattern="unrelated database timeout",
+                time_range="30m",
+            )
+        ),
+        decision(
+            QueryMetricsAction(
+                tool="query_metrics",
+                service="webhook-gateway",
+                metric="certificate_days_remaining",
+                time_range="30m",
+            )
+        ),
+        decision(
+            CheckServiceHealthAction(
+                tool="check_service_health",
+                service="webhook-gateway",
+            )
+        ),
+        decision(
+            SearchRunbooksAction(
+                tool="search_runbooks",
+                query="expired TLS certificate",
+                limit=3,
+            )
+        ),
+    ]
+
+    class TLSAgent(FakeAgent):
+        async def decide(self, **kwargs: object) -> ReactDecision:
+            if self.decisions:
+                return self.decisions.popleft()
+            observations = kwargs["observations"]
+            health_evidence_id = next(
+                evidence_id
+                for observation in observations
+                for evidence_id in observation.evidence_ids
+                if evidence_id.startswith("health:")
+            )
+            return decision(
+                FinalizeAssessmentAction(
+                    tool="finalize_assessment",
+                    evidence_ids=[metric_id, health_evidence_id],
+                )
+            )
+
+    assessment = IncidentAssessment(
+        incident_id="INC-TLS-001",
+        root_cause="The partner TLS certificate expired.",
+        supporting_evidence=[
+            "The certificate has zero days remaining.",
+            "The gateway itself remains healthy.",
+        ],
+        recommended_actions=["Deploy a valid certificate."],
+        verification_steps=["Verify TLS handshakes recover."],
+        confidence=0.96,
+        citation_ids=["RB-TLS-001#signals"],
+    )
+    agent = TLSAgent(decisions, [assessment])
+    graph = build_react_investigation_graph(
+        retriever=FakeRetriever(
+            [
+                RetrievedRunbookSection(
+                    section=tls_section,
+                    score=0.95,
+                )
+            ]
+        ),
+        planner=agent,
+        analyst=agent,
+        config=ReActGraphConfig(no_progress_limit=2),
+    )
+
+    result = await graph.ainvoke({"incident": tls_incident})
+
+    assert result["assessment_validated"] is True
+    assert result["iteration_count"] == 6
+    assert result["react_steps"][0].new_evidence_count == 0
+    assert result["react_steps"][1].new_evidence_count == 0
 
 
 @pytest.mark.anyio

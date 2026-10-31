@@ -44,6 +44,15 @@ class ReActAssessmentValidationError(ValueError):
     pass
 
 
+EVIDENCE_TOOL_NAMES = {
+    "query_metrics",
+    "search_logs",
+    "get_recent_deployments",
+    "check_service_health",
+    "search_runbooks",
+}
+
+
 @dataclass(frozen=True)
 class ReActGraphConfig:
     max_iterations: int = 8
@@ -120,6 +129,16 @@ def _has_sufficient_evidence(
     )
 
 
+def _has_unexplored_evidence_tools(
+    state: InvestigationState,
+) -> bool:
+    attempted = {
+        step.tool
+        for step in state.get("react_steps", [])
+    }
+    return bool(EVIDENCE_TOOL_NAMES - attempted)
+
+
 def build_react_investigation_graph(
     retriever: RunbookRetriever,
     planner: ReActPlanner,
@@ -167,6 +186,7 @@ def build_react_investigation_graph(
             "tool_call_count": 0,
             "tool_error_count": 0,
             "no_progress_count": 0,
+            "duplicate_action_count": 0,
             "assessment_repair_count": 0,
             "validation_error": None,
             "assessment_validated": False,
@@ -195,6 +215,10 @@ def build_react_investigation_graph(
                         graph_config.max_tool_calls
                         - state.get("tool_call_count", 0),
                     ),
+                    minimum_evidence_items=(
+                        graph_config.min_evidence_items
+                    ),
+                    requires_runbook_context=True,
                 )
         except TimeoutError as exc:
             raise ReActLimitReachedError(
@@ -321,6 +345,11 @@ def build_react_investigation_graph(
                 if new_evidence_ids
                 else state.get("no_progress_count", 0) + 1
             ),
+            "duplicate_action_count": (
+                state.get("duplicate_action_count", 0) + 1
+                if is_duplicate
+                else 0
+            ),
         }
 
     def prepare_finalize(
@@ -429,8 +458,17 @@ def build_react_investigation_graph(
                 "tool_error_limit",
             ),
             (
-                state.get("no_progress_count", 0)
-                >= graph_config.no_progress_limit,
+                (
+                    state.get("duplicate_action_count", 0)
+                    >= graph_config.no_progress_limit
+                )
+                or (
+                    state.get("no_progress_count", 0)
+                    >= graph_config.no_progress_limit
+                    and not _has_unexplored_evidence_tools(
+                        state
+                    )
+                ),
                 "no_progress",
             ),
             (
@@ -469,8 +507,13 @@ def build_react_investigation_graph(
         ):
             reason = "tool_error_limit"
         elif (
-            state.get("no_progress_count", 0)
+            state.get("duplicate_action_count", 0)
             >= graph_config.no_progress_limit
+            or (
+                state.get("no_progress_count", 0)
+                >= graph_config.no_progress_limit
+                and not _has_unexplored_evidence_tools(state)
+            )
         ):
             reason = "no_progress"
         elif (
@@ -497,8 +540,13 @@ def build_react_investigation_graph(
         ):
             reason = "tool error limit"
         elif (
-            state.get("no_progress_count", 0)
+            state.get("duplicate_action_count", 0)
             >= graph_config.no_progress_limit
+            or (
+                state.get("no_progress_count", 0)
+                >= graph_config.no_progress_limit
+                and not _has_unexplored_evidence_tools(state)
+            )
         ):
             reason = "no-progress limit"
         elif (

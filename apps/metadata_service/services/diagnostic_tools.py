@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
@@ -179,16 +180,30 @@ class IncidentDiagnosticToolkit:
         cutoff = incident.started_at - timedelta(
             minutes=TIME_RANGE_MINUTES[action.time_range]
         )
-        terms = [
-            term
-            for term in action.pattern.casefold().split()
-            if term
-        ]
+        terms = set(
+            re.findall(
+                r"[a-z0-9_]+",
+                action.pattern.casefold(),
+            )
+        )
+        terms -= {
+            "a",
+            "an",
+            "and",
+            "for",
+            "from",
+            "in",
+            "of",
+            "on",
+            "the",
+            "to",
+            "with",
+        }
         matches = [
             entry
             for entry in incident.logs
             if entry.timestamp >= cutoff
-            and all(
+            and any(
                 term in entry.message.casefold()
                 for term in terms
             )
