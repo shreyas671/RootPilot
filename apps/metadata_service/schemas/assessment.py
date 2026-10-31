@@ -1,3 +1,4 @@
+import json
 from typing import Annotated
 
 from pydantic import (
@@ -49,7 +50,23 @@ class IncidentAssessment(BaseModel):
     )
     citation_ids: list[CitationId] = Field(
         min_length=1,
+        json_schema_extra={"uniqueItems": True},
     )
+
+    @classmethod
+    def model_validate_model_json(
+        cls,
+        json_data: str,
+    ) -> "IncidentAssessment":
+        """Validate model JSON after safe citation normalization."""
+        data = json.loads(json_data)
+        if isinstance(data, dict):
+            citation_ids = data.get("citation_ids")
+            if isinstance(citation_ids, list):
+                data["citation_ids"] = list(
+                    dict.fromkeys(citation_ids)
+                )
+        return cls.model_validate(data)
 
     @field_validator("citation_ids")
     @classmethod

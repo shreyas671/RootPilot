@@ -35,6 +35,7 @@ class InvestigationState(TypedDict):
     no_progress_count: NotRequired[int]
     assessment_repair_count: NotRequired[int]
     validation_error: NotRequired[str | None]
+    assessment_generation_failed: NotRequired[bool]
     react_started_at: NotRequired[float]
     termination_reason: NotRequired[
         ReactTerminationReason

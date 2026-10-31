@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from pydantic import ValidationError
 
 from apps.metadata_service.schemas.investigation import (
     InvestigationState,
@@ -169,6 +170,7 @@ def build_react_investigation_graph(
             "assessment_repair_count": 0,
             "validation_error": None,
             "assessment_validated": False,
+            "assessment_generation_failed": False,
             "react_started_at": time.monotonic(),
         }
 
@@ -531,10 +533,33 @@ def build_react_investigation_graph(
             raise ReActLimitReachedError(
                 "ReAct investigation reached the runtime limit"
             ) from exc
+        except ValidationError as exc:
+            return {
+                "assessment_validated": False,
+                "assessment_generation_failed": True,
+                "validation_error": (
+                    "Generated assessment failed schema "
+                    f"validation: {exc}"
+                ),
+                "assessment_repair_count": (
+                    state.get("assessment_repair_count", 0) + 1
+                ),
+            }
         return {
             "assessment": assessment,
+            "assessment_generation_failed": False,
             "validation_error": None,
         }
+
+    def route_generation(state: InvestigationState) -> str:
+        if not state.get("assessment_generation_failed"):
+            return "validate_assessment"
+        if (
+            state.get("assessment_repair_count", 0)
+            <= graph_config.max_repair_attempts
+        ):
+            return "generate_assessment"
+        return "validation_failed"
 
     def validate_assessment(
         state: InvestigationState,
@@ -652,9 +677,18 @@ def build_react_investigation_graph(
         "prepare_limit_finalize",
         "generate_react_assessment",
     )
-    graph.add_edge(
+    graph.add_conditional_edges(
         "generate_react_assessment",
-        "validate_react_assessment",
+        route_generation,
+        {
+            "validate_assessment": (
+                "validate_react_assessment"
+            ),
+            "generate_assessment": (
+                "generate_react_assessment"
+            ),
+            "validation_failed": "validation_failed",
+        },
     )
     graph.add_conditional_edges(
         "validate_react_assessment",

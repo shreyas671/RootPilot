@@ -213,6 +213,48 @@ async def test_react_graph_repairs_unsupported_citation() -> None:
 
 
 @pytest.mark.anyio
+async def test_react_graph_repairs_schema_validation_error() -> None:
+    class SchemaRepairingAgent(FakeAgent):
+        async def analyze_react(
+            self,
+            **_: object,
+        ) -> IncidentAssessment:
+            self.analysis_calls += 1
+            if self.analysis_calls == 1:
+                IncidentAssessment(
+                    incident_id="INC-DB-001",
+                    root_cause="Pool exhaustion",
+                    supporting_evidence=["Pool is full."],
+                    recommended_actions=["Restore capacity."],
+                    verification_steps=["Check waiters."],
+                    confidence=0.9,
+                    citation_ids=[
+                        "RB-DB-001#diagnosis",
+                        "RB-DB-001#diagnosis",
+                    ],
+                )
+            return make_assessment()
+
+    agent = SchemaRepairingAgent(
+        successful_decisions(),
+        [],
+    )
+    graph = build_react_investigation_graph(
+        retriever=FakeRetriever([make_section()]),
+        planner=agent,
+        analyst=agent,
+    )
+
+    result = await graph.ainvoke(
+        {"incident": load_incidents()["INC-DB-001"]}
+    )
+
+    assert result["assessment_validated"] is True
+    assert result["assessment_repair_count"] == 1
+    assert agent.analysis_calls == 2
+
+
+@pytest.mark.anyio
 async def test_react_graph_finalizes_at_iteration_limit() -> None:
     agent = FakeAgent(
         successful_decisions()[:3],

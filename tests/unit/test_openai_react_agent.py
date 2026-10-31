@@ -80,3 +80,48 @@ async def test_chat_planner_returns_structured_action() -> None:
     assert "metrics" not in payload["incident"]
     assert "logs" not in payload["incident"]
     assert "recent_changes" not in payload["incident"]
+
+
+@pytest.mark.anyio
+async def test_chat_assessment_deduplicates_model_citations() -> None:
+    assessment_json = {
+        "incident_id": "INC-DB-001",
+        "root_cause": "The database connection pool is full.",
+        "supporting_evidence": ["46 requests are waiting."],
+        "recommended_actions": ["Restore pool capacity."],
+        "verification_steps": ["Verify waiters return to zero."],
+        "confidence": 0.9,
+        "citation_ids": [
+            "RB-DB-001#signals",
+            "RB-DB-001#signals",
+        ],
+    }
+    create = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=json.dumps(assessment_json)
+                    )
+                )
+            ]
+        )
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create)
+        )
+    )
+    agent = OpenAIReActAgent(
+        client=client,
+        model="analysis-test",
+        api="chat_completions",
+    )
+
+    result = await agent.analyze_react(
+        incident=load_incidents()["INC-DB-001"],
+        observations=[],
+        retrieved_sections=[],
+    )
+
+    assert result.citation_ids == ["RB-DB-001#signals"]

@@ -1,5 +1,5 @@
 import json
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, cast
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -205,6 +205,13 @@ class OpenAIReActAgent:
             if content is None:
                 raise ValueError(
                     "Chat completion did not contain content"
+                )
+            if output_model is IncidentAssessment:
+                return cast(
+                    ModelT,
+                    IncidentAssessment.model_validate_model_json(
+                        content
+                    ),
                 )
             return output_model.model_validate_json(content)
 

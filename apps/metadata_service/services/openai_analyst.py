@@ -107,7 +107,7 @@ class OpenAIIncidentAnalyst:
                 raise ValueError(
                     "Chat completion did not contain content"
                 )
-            assessment = IncidentAssessment.model_validate_json(
+            assessment = IncidentAssessment.model_validate_model_json(
                 content
             )
         else:

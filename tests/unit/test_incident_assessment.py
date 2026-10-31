@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -87,3 +89,25 @@ def test_incident_assessment_rejects_duplicate_citations() -> None:
         match="citation IDs must be unique",
     ):
         IncidentAssessment(**data)
+
+
+def test_model_output_normalizes_duplicate_citations() -> None:
+    data = make_assessment_data()
+    data["citation_ids"] = [
+        "RB-DB-001#diagnosis",
+        "RB-DB-001#diagnosis",
+    ]
+
+    assessment = (
+        IncidentAssessment.model_validate_model_json(
+            json.dumps(data)
+        )
+    )
+
+    assert assessment.citation_ids == [
+        "RB-DB-001#diagnosis"
+    ]
+    schema = IncidentAssessment.model_json_schema()
+    assert schema["properties"]["citation_ids"][
+        "uniqueItems"
+    ] is True
